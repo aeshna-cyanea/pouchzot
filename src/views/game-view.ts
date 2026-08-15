@@ -409,7 +409,7 @@ export function buildGameView(
   // bottom edge in portrait (landscape slots it into the sidebar `spells`
   // row). The message log floats over the map too — always, casters or not —
   // so the rail is out of flow; the `spell-row` class on #game-view lifts the
-  // log (and --more--) by the rail's height AND grows the map's bottom
+  // log by the rail's height AND grows the map's bottom
   // centering reserve to match (see the #map-grid padding rules), so the @
   // re-centers ~1 row upward when the rail fades in — a deliberate trade,
   // accepted on-device over the @ sitting persistently low for casters.
@@ -543,7 +543,9 @@ export function buildGameView(
   msgLog.addEventListener('click', (e) => {
     if (isHarvesting()) return
     if (uiOverlay.style.display === 'none' && !(e.target as HTMLElement).closest('button, input, .game-text-input-row')) {
-      conn.send({ msg: 'key', keycode: 16 })
+      // While --more-- is up the whole framed log is the dismiss target
+      // (Space); otherwise a tap opens scrollback (Ctrl-P).
+      conn.send({ msg: 'key', keycode: moreActive ? 32 : 16 })
       focusView()
     }
   })
@@ -723,9 +725,18 @@ export function buildGameView(
   hud.appendChild(hudTop)
   hud.appendChild(statusView.element)
 
+  // --more-- shows as a row INSIDE the log plus a frame around the whole log
+  // (.more-active), matching where the reference puts it (webtiles' #more is
+  // an unstyled line directly below #messages; console prints it as the
+  // message window's last line). The floating #more-btn survives only for
+  // X mode, where the log is display:none. All presentation flows through
+  // syncMoreDisplay; state lives in moreActive, never the DOM.
+  let moreActive = false
+  const moreLine = document.createElement('p')
+  moreLine.id = 'msg-more'
+
   const moreBtn = document.createElement('button')
   moreBtn.id = 'more-btn'
-  moreBtn.textContent = '— more —'
   moreBtn.style.display = 'none'
   moreBtn.addEventListener('click', () => {
     if (isHarvesting()) return
@@ -1751,7 +1762,7 @@ export function buildGameView(
         const prevInputMode = currentInputMode
         currentInputMode = msg.mode
         if (msg.mode === 1) {  // COMMAND: normal play resumed
-          hideMoreBtn()
+          hideMore()
           disableActivePrompt()
           removeTextInput()
           // Reference only marks on the COMMAND transition, not on every
@@ -1810,6 +1821,11 @@ export function buildGameView(
       }
 
       case 'msgs': {
+        // The inline --more-- row must not be in the DOM while the batch
+        // merges: rollback pops firstChild N times and pushMsgRow prepends,
+        // both assuming the DOM head is the newest message row. Reattached
+        // below (a batch without a `more` key leaves the prior state up).
+        moreLine.remove()
         if (msg.rollback) {
           // msgLog is column-reverse: most-recent message is firstChild, so
           // rollback (remove the last N appended) walks the DOM head.
@@ -1852,8 +1868,9 @@ export function buildGameView(
             appendMessage(m.text, true)
           }
         }
-        if (msg.more) showMoreBtn(msg.more_text)
-        else if (msg.more === false) hideMoreBtn()
+        if (msg.more) showMore(msg.more_text)
+        else if (msg.more === false) hideMore()
+        else if (moreActive) syncMoreDisplay()  // reattach as the bottom row
         // A memorise/forget this frame leaves us at a command prompt (the delay
         // finished; no input_mode transition fires), so re-harvest now rather
         // than waiting for the next menu round-trip.
@@ -1987,6 +2004,7 @@ export function buildGameView(
     inXMode = true
     view.classList.add('x-mode')  // drops the map's log-strip padding (style.css)
     msgLog.style.display = 'none'
+    syncMoreDisplay()  // a pending --more-- swaps to the floating button
     hud.style.display = 'none'
     renderSpellRail()  // drop the rail row (and the log's map overlay) for the examine map
     touchControls.enterXMode()
@@ -2014,6 +2032,7 @@ export function buildGameView(
   function exitXMode(): void {
     inXMode = false
     view.classList.remove('x-mode')
+    syncMoreDisplay()  // a pending --more-- returns to the inline log row
     xdescReset()
     touchControls.exitXMode()
     mapView.setFontScale(1.0)
@@ -2891,8 +2910,8 @@ export function buildGameView(
   // when there are none. Each button casts on tap via castSpellLetter (its
   // own guard keeps a tap during a menu/overlay/X-mode inert). The
   // `spell-row` class on the view tracks rail visibility: while set, CSS
-  // lifts the floating message log (and --more--) by the rail's height so
-  // the rail fits beneath them, and grows the map's bottom centering
+  // lifts the floating message log by the rail's height so
+  // the rail fits beneath it, and grows the map's bottom centering
   // reserve to match (the padding change refits the map via its
   // ResizeObserver — a deliberate ~1-row re-center; see the #map-grid
   // padding comment in style.css).
@@ -2926,10 +2945,10 @@ export function buildGameView(
   // auto/re-harvest fired during a `--more--` or a channel-2 prompt leaked a
   // stray keystroke into it (eating the pager/answering the prompt, or — for
   // a harvest — getting the `I` swallowed so the probe times out and clears
-  // the rail). `moreBtn`/`activePromptEl` are exactly that missing state.
+  // the rail). `moreActive`/`activePromptEl` are exactly that missing state.
   function uiQuiet(): boolean {
     return uiStack.length === 0 && !crtActive && !dialogActive && !activeMenu
-      && !inXMode && activePromptEl === null && moreBtn.style.display === 'none'
+      && !inXMode && activePromptEl === null && !moreActive
   }
 
   // Truly idle at the command prompt — safe to inject a keystroke that must
@@ -3648,13 +3667,29 @@ export function buildGameView(
     return el
   }
 
-  function showMoreBtn(text?: string): void {
-    moreBtn.textContent = text || '— more —'
-    moreBtn.style.display = ''
+  function showMore(text?: string): void {
+    moreActive = true
+    const label = text || '--more--'
+    moreLine.textContent = label
+    moreBtn.textContent = label
+    syncMoreDisplay()
   }
 
-  function hideMoreBtn(): void {
-    moreBtn.style.display = 'none'
+  function hideMore(): void {
+    moreActive = false
+    syncMoreDisplay()
+  }
+
+  // One renderer for both presentations: the inline log row + .more-active
+  // frame in normal play, the floating button in X mode (log hidden there).
+  // Also called by the msgs merge (reattach after detach) and the X-mode
+  // transitions, so a --more-- pending across enter/exit swaps presentation.
+  function syncMoreDisplay(): void {
+    const inline = moreActive && !inXMode
+    view.classList.toggle('more-active', inline)
+    if (inline) msgLog.prepend(moreLine)  // firstChild = visual bottom row
+    else moreLine.remove()
+    moreBtn.style.display = moreActive && inXMode ? '' : 'none'
   }
 
   function disableActivePrompt(): void {
@@ -3879,8 +3914,12 @@ export function buildGameView(
   // can color it (lightgrey turn, darkgrey cmd). If both classes land on
   // the same span the `turn` color wins, matching reference rule order.
   function markLastMsg(kind: 'turn' | 'cmd'): void {
-    // msgLog is column-reverse: visual "last" = DOM :first-child.
-    const mark = msgLog.querySelector<HTMLElement>('.game-msg:first-child .msg-turn-mark')
+    // msgLog is column-reverse: visual "last" = first .game-msg in DOM order
+    // (not :first-child — a non-message head node, e.g. the inline --more--
+    // row when a `player` time tick trails the msgs batch, must not eat the
+    // mark; the reference likewise marks its last .game_message, not the
+    // pane's last node).
+    const mark = msgLog.querySelector<HTMLElement>('.game-msg .msg-turn-mark')
     if (!mark) return
     mark.textContent = '_'
     mark.classList.add(kind)
@@ -3892,8 +3931,10 @@ export function buildGameView(
   // pruning the oldest means dropping the DOM lastChild. All message insertion
   // goes through here so that convention — and the 50-row cap — lives in one
   // place; reach for appendChild or prune firstChild elsewhere and the log
-  // silently inverts. (rollback / markLastMsg read the newest as firstChild to
-  // match this same convention.)
+  // silently inverts. (rollback walks the DOM head to match — the msgs
+  // handler detaches the --more-- row first so the head is a message row —
+  // and markLastMsg matches the first .game-msg, tolerating non-message
+  // head nodes.)
   function pushMsgRow(node: Node, prune = true): void {
     msgLog.prepend(node)
     if (prune) while (msgLog.children.length > 50) msgLog.lastChild?.remove()

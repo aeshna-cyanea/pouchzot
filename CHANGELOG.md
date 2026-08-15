@@ -11,8 +11,8 @@ Notable changes to PocketZot, newest first.
 
 ## 2026-08-14
 
-- Fixed an issue with attempting to evoke a wand from within an item
-  description.
+- Reworked the --more-- prompt.
+- Fixed an issue with evoking while in an item description.
 
 ## 2026-08-13
 

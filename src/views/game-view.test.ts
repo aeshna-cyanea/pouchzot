@@ -53,6 +53,7 @@ const hud = (h: Harness) => h.view.querySelector<HTMLElement>('#game-hud')!
 const msgLog = (h: Harness) => h.view.querySelector<HTMLElement>('#game-messages')!
 const overlay = (h: Harness) => h.view.querySelector<HTMLElement>('#ui-overlay')!
 const moreBtn = (h: Harness) => h.view.querySelector<HTMLElement>('#more-btn')!
+const moreLine = (h: Harness) => h.view.querySelector<HTMLElement>('#msg-more')
 const isHidden = (el: HTMLElement) => el.style.display === 'none'
 const sent = (h: Harness): ClientMsg[] => h.send.mock.calls.map(c => c[0] as ClientMsg)
 const msgRows = (h: Harness) => [...msgLog(h).querySelectorAll<HTMLElement>('.game-msg')]
@@ -87,20 +88,57 @@ describe('message log (msgs)', () => {
     expect(sent(h)).toContainEqual({ msg: 'input', text: 'S' })
   })
 
-  it('shows the — more — button on more:true and the click sends Space (keycode 32)', () => {
+  it('inlines --more-- as the log-bottom row on more:true and a log tap sends Space', () => {
     const h = setup()
-    expect(isHidden(moreBtn(h))).toBe(true)
+    expect(moreLine(h)).toBeNull()
     h.dispatch({ msg: 'msgs', messages: [{ text: 'hi' }], more: true })
-    expect(isHidden(moreBtn(h))).toBe(false)
-    moreBtn(h).click()
+    expect(h.view.classList.contains('more-active')).toBe(true)
+    // column-reverse: firstChild = visual bottom, where --more-- belongs
+    expect(msgLog(h).firstElementChild).toBe(moreLine(h))
+    expect(isHidden(moreBtn(h))).toBe(true)  // button is the X-mode fallback only
+    msgLog(h).click()
     expect(sent(h)).toContainEqual({ msg: 'key', keycode: 32 })
   })
 
-  it('hides the — more — button on more:false', () => {
+  it('removes the --more-- row on more:false and returns the log tap to scrollback', () => {
     const h = setup()
     h.dispatch({ msg: 'msgs', messages: [{ text: 'hi' }], more: true })
     h.dispatch({ msg: 'msgs', messages: [], more: false })
+    expect(moreLine(h)).toBeNull()
+    expect(h.view.classList.contains('more-active')).toBe(false)
+    msgLog(h).click()
+    expect(sent(h)).toContainEqual({ msg: 'key', keycode: 16 })
+  })
+
+  it('a batch without a more key keeps the row attached below the new messages', () => {
+    const h = setup()
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'hi' }], more: true })
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'later' }] })
+    expect(msgLog(h).firstElementChild).toBe(moreLine(h))
+    expect(msgTexts(h)).toEqual(['hi', 'later'])
+  })
+
+  it('rollback removes messages, never the --more-- row', () => {
+    const h = setup()
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'keep' }, { text: 'stale' }], more: true })
+    h.dispatch({ msg: 'msgs', rollback: 1, messages: [{ text: 'fresh' }] })
+    expect(msgTexts(h)).toEqual(['keep', 'fresh'])
+    expect(msgLog(h).firstElementChild).toBe(moreLine(h))
+  })
+
+  it('in X mode --more-- falls back to the floating button (log is hidden)', () => {
+    const h = setup()
+    h.dispatch({ msg: 'cursor', id: 2, loc: { x: 5, y: 5 } })  // enter X mode
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'hi' }], more: true })
+    expect(isHidden(moreBtn(h))).toBe(false)
+    expect(moreLine(h)).toBeNull()
+    expect(h.view.classList.contains('more-active')).toBe(false)
+    moreBtn(h).click()
+    expect(sent(h)).toContainEqual({ msg: 'key', keycode: 32 })
+    // leaving X mode with the pager still up swaps back to the inline row
+    h.dispatch({ msg: 'cursor', id: 2 })
     expect(isHidden(moreBtn(h))).toBe(true)
+    expect(msgLog(h).firstElementChild).toBe(moreLine(h))
   })
 })
 
@@ -1145,12 +1183,13 @@ describe('X-mode (eXamine level map) via cursor', () => {
 })
 
 describe('input_mode COMMAND transition', () => {
-  it('hides the more button on the return to normal play (mode 1)', () => {
+  it('clears --more-- on the return to normal play (mode 1)', () => {
     const h = setup()
     h.dispatch({ msg: 'msgs', messages: [{ text: 'hi' }], more: true })
-    expect(isHidden(moreBtn(h))).toBe(false)
+    expect(moreLine(h)).toBeTruthy()
     h.dispatch({ msg: 'input_mode', mode: 1 })
-    expect(isHidden(moreBtn(h))).toBe(true)
+    expect(moreLine(h)).toBeNull()
+    expect(h.view.classList.contains('more-active')).toBe(false)
   })
 
   it('marks the most-recent message row with a turn glyph on a player time tick', () => {

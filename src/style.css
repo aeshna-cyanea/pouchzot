@@ -1433,8 +1433,8 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   --msglog-line: 1.3;
   /* Message-log height in lines (line-count × font × line-height rather than
      `lh`, which would re-resolve against each consumer's own line-height).
-     A var so the spell-row rules below can offset #more-btn by exactly the
-     log's height. 4 lines still spans several turns (the server glues
+     A var so #map-grid can reserve exactly the log's height above the float.
+     4 lines still spans several turns (the server glues
      same-turn messages onto one line) and tapping the log opens full
      history; lines trimmed here come back as clear map area, since
      #map-grid reserves exactly this height above the floating log. */
@@ -1457,9 +1457,21 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
      which is also what swaps in TileMapView). */
   --msglog-bg: color-mix(in srgb, var(--bg) 30%, transparent);
   /* Spell-rail button band: 32px tile + 2×2px button padding + own 0.25rem
-     padding. Shared so the rail's height, the log float that sits just above it,
-     and the --more-- offset that clears both stay locked together. */
+     padding. Shared so the rail's height and the log float that sits just
+     above it stay locked together. */
   --spell-rail-h: calc(36px + 0.5rem);
+  /* The log's rendered box height: --msglog-h plus the inline --more-- row's
+     growth (--more-line-h is nonzero only under .more-active — see the
+     --more-- block). Every rule that clears or tracks the log box consumes
+     THIS, not --msglog-h, so the --more-- growth can't miss a consumer.
+     --msglog-h itself stays the map's centering reserve (#map-grid), which
+     deliberately excludes the growth — a pager must not refit the map. */
+  --msglog-box-h: calc(var(--msglog-h) + var(--more-line-h, 0px));
+  /* Prompt-channel cyan (channel_to_colour(MSGCH_PROMPT), = .fg3): every
+     --more-- surface — the inline row, the log frame, the X-mode fallback
+     button — carries this one colour so both presentations read as the
+     same prompt. */
+  --more-cyan: #06989a;
   position: relative;
   flex: 1;
   display: grid;
@@ -1654,6 +1666,10 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   background: var(--msglog-bg);
   overflow-y: auto;
   cursor: pointer;
+  /* --msglog-box-h grows the box by exactly the inline --more-- row while
+     .more-active, on the map side — the anchored edge stays pinned — so no
+     message line is displaced while it shows. */
+  height: var(--msglog-box-h);
 }
 
 /* Tile rendering: lighter scrim — see --msglog-bg. */
@@ -1703,6 +1719,33 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   padding: 0;
 }
 
+/* --more-- (reference: webtiles' #more is an unstyled line directly
+   below #messages; console prints it as the message window's last line).
+   The row (#msg-more, game-view.ts syncMoreDisplay) rides inside the log as
+   the visual-bottom line, and the WHOLE log becomes the pause indicator and
+   dismiss target: a frame plus one extra line of height, grown on the map
+   side since the anchored edge is pinned (portrait bottom sits above the
+   rail/HUD, landscape top under the status bar), and the log's tap sends
+   Space while active (msgLog click handler). The map strip covered is the
+   one the old floating button occupied, minus its padding. X mode keeps the
+   floating #more-btn instead — the log is hidden there. */
+#game-view.more-active {
+  /* One line + the 2px the border-box frame takes from the content. */
+  --more-line-h: calc(var(--msglog-font) * var(--msglog-line) + 2px);
+}
+#game-view.more-active #game-messages { border: 1px solid var(--more-cyan); }
+#msg-more {
+  /* Console (message.cc:718-731): left-aligned at the message column
+     — 1ch clears the turn-mark slot the way console's --more-- starts at
+     col 2 when first-col prefixes hold col 1. The frame + whole-log
+     tap carry the affordance, so the row itself reads as a log line. */
+  padding-left: 1ch;
+  color: var(--more-cyan);
+}
+/* Pill mode drops the log scrim; while the frame is up the box needs a body
+   again — restore it for the duration (also a "paused/resumed" cue). */
+#game-view.msg-pill.more-active #game-messages { background: var(--msglog-bg); }
+
 /* Portrait: the log (base rule) floats over the map's BOTTOM edge; these rules
    set its anchor and float the quick-cast rail. Both are out of flow, so the
    map keeps its full height and — crucially — the rail's late arrival (a
@@ -1727,15 +1770,9 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
     z-index: 3;
   }
 
-  /* --more-- (z-index 4) sits above the floating log — and the rail, for
-     casters — so it never covers the newest message lines. (`#game-view` prefix
-     to outrank the base `#more-btn { bottom: 0 }`, which is later in source.) */
-  #game-view #more-btn { bottom: var(--msglog-h); }
-  #game-view.spell-row #more-btn { bottom: calc(var(--msglog-h) + var(--spell-rail-h)); }
-  /* X-mode hides the log (and drops the rail), so there's nothing to clear —
-     --more-- hugs the bottom edge. Equal specificity to the two rules above;
-     later in source wins. */
-  #game-view.x-mode #more-btn { bottom: 0; }
+  /* No portrait #more-btn offsets: the button shows only in X mode (see the
+     --more-- block above), where the log/rail are gone and the base rule's
+     bottom: 0 is right. */
 
   /* Reserve the log's strip as extra BOTTOM padding so the map centers the
      player in the clear area above the floating log/rail, not in the geometric
@@ -2037,6 +2074,9 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 }
 .seed-btn-primary:active { background: var(--surface); color: var(--accent); }
 
+/* X-mode-only --more-- fallback: normal play inlines --more-- into the log
+   (see the .more-active block), but X mode hides the log, so a pending pager
+   there still needs a visible, tappable target (syncMoreDisplay picks). */
 #more-btn {
   grid-area: map;
   position: absolute;
@@ -2045,8 +2085,8 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   bottom: 0;
   z-index: 4;
   background: var(--surface2);
-  border: 1px solid #eeeeec;
-  color: #eeeeec;
+  border: 1px solid var(--more-cyan);
+  color: var(--more-cyan);
   font-family: var(--font-mono);
   font-size: 0.8rem;
   padding: 0.4rem 0.5rem;
@@ -2293,14 +2333,16 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   padding-top: max(0.25rem, var(--safe-top));
   padding-left: max(0.25rem, var(--safe-left));
   padding-right: max(0.25rem, var(--safe-right));
-  /* Keep the canvas clear of the floating log along the map's bottom edge. */
-  padding-bottom: calc(var(--msglog-h) + 0.25rem);
+  /* Keep the canvas clear of the floating log along the map's bottom edge
+     (--msglog-box-h: movement passes through the lens, so a pager can grow
+     the log while it's open). */
+  padding-bottom: calc(var(--msglog-box-h) + 0.25rem);
   background: rgba(0, 0, 0, 0.92);
 }
 /* With the spell rail up, the log floats a rail-height higher (same offset
-   pair as #more-btn) — keep the canvas clear of both. */
+   pair as #chat-pill) — keep the canvas clear of both. */
 #game-view.spell-row .minimap-lens {
-  padding-bottom: calc(var(--msglog-h) + var(--spell-rail-h) + 0.25rem);
+  padding-bottom: calc(var(--msglog-box-h) + var(--spell-rail-h) + 0.25rem);
 }
 .minimap-canvas {
   /* The bitmap is integer device-px per cell; keep upscaling (if any)
@@ -3800,15 +3842,16 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
      cleared by GROWING the box by --safe-top rather than moving it down:
      the scrim then backs the clock/battery instead of leaving raw map
      glyphs under them, while the padding keeps the text below the bar.
-     The log's bottom edge stays at --safe-top + --msglog-h either way, so
-     the #more-btn / minimap offsets below hold. Scrollback can slide old
+     The log's bottom edge stays at --safe-top + --msglog-box-h either way,
+     so the minimap offsets below hold. Scrollback can slide old
      lines up into the band (padding scrolls with content), but they stay
      on the scrim — no worse than any text under a translucent bar. Phones
      report a 0 inset in landscape, collapsing all of this to the base
-     rule. */
+     rule. Top edge pinned here, so --msglog-box-h's inline --more-- growth
+     extends the bottom edge toward map center. */
   #game-messages {
     top: 0;
-    height: calc(var(--msglog-h) + var(--safe-top));
+    height: calc(var(--msglog-box-h) + var(--safe-top));
     padding-top: calc(0.2rem + var(--safe-top));
   }
 
@@ -3828,8 +3871,10 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
     max-width: calc(var(--sidebar-w) - 0.8rem);
   }
 
-  /* --more-- re-anchors directly below the floating log (the base rule
-     already provides grid-area:map, absolute, left/right, z-index 4). */
+  /* The X-mode --more-- fallback button re-anchors to the log's usual band
+     (the log itself is hidden in X mode): top keeps it clear of the
+     bottom-anchored xdesc strip and d-pad. Base rule provides
+     grid-area:map, absolute, left/right, z-index 4. */
   #more-btn {
     top: calc(var(--safe-top) + var(--msglog-h));
     bottom: auto;
@@ -3842,7 +3887,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
      clearance on either side. */
   .minimap-lens,
   #game-view.spell-row .minimap-lens {
-    padding-top: calc(var(--safe-top) + var(--msglog-h) + 0.25rem);
+    padding-top: calc(var(--safe-top) + var(--msglog-box-h) + 0.25rem);
     /* The landscape map cell reaches the physical screen bottom (no touch
        controls below it), so keep the canvas out of the home-indicator zone. */
     padding-bottom: max(0.25rem, var(--safe-bottom));
@@ -4645,7 +4690,8 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   right: 0.75rem;
   margin-inline: auto;
   width: fit-content;
-  bottom: calc(var(--msglog-h) + 0.5rem);
+  /* --msglog-box-h: ride up with the log's inline --more-- growth. */
+  bottom: calc(var(--msglog-box-h) + 0.5rem);
   z-index: 5;
   padding: 0.35rem 0.7rem;
   border-radius: 16px;
@@ -4669,7 +4715,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   overflow: hidden;
   word-break: break-word;
 }
-#game-view.spell-row #chat-pill { bottom: calc(var(--msglog-h) + var(--spell-rail-h) + 0.5rem); }
+#game-view.spell-row #chat-pill { bottom: calc(var(--msglog-box-h) + var(--spell-rail-h) + 0.5rem); }
 
 /* Bottom sheet: history + input. Fixed so the map keeps playing above it —
    chatting while watching is the point. Above the touch/menu tier, below
