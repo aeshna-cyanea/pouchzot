@@ -3855,6 +3855,17 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
     padding-top: calc(0.2rem + var(--safe-top));
   }
 
+  /* Both floating text strips are flush with the physical LEFT screen edge
+     (the map column is full-bleed): on phones the first characters land in
+     the rounded corner / notch ear, so inset the text clear — same
+     content-vs-background call as #ui-overlay's padding-left above. The
+     scrim stays edge-to-edge (left:0 in the base rules); portrait reports
+     0 side insets, collapsing this to the base 0.2rem. */
+  #game-messages,
+  #xdesc-strip {
+    padding-left: max(0.2rem, var(--safe-left));
+  }
+
   /* Monster list: in-flow sidebar card in the `mons` row, directly beneath the
      HUD and aligned to its horizontal padding. On a tablet-height sidebar this
      is the normal multi-row list (expanding up to MAX_ROWS, the 1fr spacer
