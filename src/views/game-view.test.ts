@@ -1810,6 +1810,33 @@ describe('monster panel → server selection menu hand-off', () => {
   })
 })
 
+// While spectating the panel is tap-anywhere-to-close (see openMonsterPanel):
+// a watcher has no touch-⎋/back affordance on iOS, so a full-screen list had
+// no dismiss target, and a watcher's click_cell is dropped server-side anyway.
+describe('monster panel while spectating', () => {
+  const openPanel = (h: Harness) => {
+    h.dispatch({ msg: 'map', cells: [{ x: 5, y: 5, g: 'o', col: 7, mon: { id: 1, name: 'orc', att: 1, type: 1 } }] })
+    h.view.querySelector<HTMLElement>('#monster-list')!.click()
+    expect(overlay(h).querySelector('.mp-list')).not.toBeNull()
+  }
+
+  it('a row tap closes the panel and sends nothing (no describe click_cell)', () => {
+    const h = setup({ username: 'bob' })
+    openPanel(h)
+    h.send.mockClear()
+    h.view.querySelector<HTMLElement>('.mp-row')!.click()
+    expect(isHidden(overlay(h))).toBe(true)
+    expect(sent(h)).toEqual([])
+  })
+
+  it('a tap in the list padding (inert for players) closes too', () => {
+    const h = setup({ username: 'bob' })
+    openPanel(h)
+    h.view.querySelector<HTMLElement>('.mp-list')!.click()
+    expect(isHidden(overlay(h))).toBe(true)
+  })
+})
+
 describe('minimap lens suspend/restore while spectating', () => {
   const lens = (h: Harness) => h.view.querySelector<HTMLElement>('.minimap-lens')
   // The real open path: a player frame renders the HUD place chip, tapping

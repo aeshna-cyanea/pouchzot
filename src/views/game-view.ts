@@ -3291,9 +3291,18 @@ export function buildGameView(
       // inversion: taps in the gaps/padding around rows hit .mp-list and stay
       // inert, so a near-miss on a monster can't dismiss the panel. When the
       // list fills the screen the ⎋ bar below is the close affordance.
+      //
+      // Spectating flips this to tap-ANYWHERE closes, minimap-style unadorned
+      // surface: a watcher has no touch-⎋ bar / back gesture on iOS (a full
+      // list left no dismiss target at all — stuck until the watched player's
+      // next overlay evicted the panel), and rows have no competing action —
+      // a watcher's click_cell is dropped by the server (ws_handler.on_message
+      // routes to process.handle_input only when self.process is set; watchers
+      // carry only watched_game) and logs a server-side warning, so the pick
+      // callback below also stays silent.
       body.addEventListener('click', (e) => {
         const t = e.target as HTMLElement
-        if (t === body || t.classList.contains('mp-empty')) closeMonsterPanel()
+        if (spectating || t === body || t.classList.contains('mp-empty')) closeMonsterPanel()
       })
       uiOverlay.appendChild(body)
     })
@@ -3305,6 +3314,7 @@ export function buildGameView(
     // orientations; landscape always worked this way).
 
     monsterPanel.setOnPickCoord((x, y) => {
+      if (spectating) return  // row tap closes via the body handler above
       if (uiStack.length === 0 && !crtActive && !activeMenu) {
         // Leave the overlay frame up: the server's describe-monster ui-push
         // will land in renderOverlay and swap the body in place, avoiding a

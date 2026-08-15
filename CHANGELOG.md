@@ -13,6 +13,7 @@ Notable changes to PocketZot, newest first.
 
 - Reworked the --more-- prompt.
 - Fixed an issue with evoking while in an item description.
+- While spectating, tapping anywhere in the monster panel now closes it.
 
 ## 2026-08-13
 
