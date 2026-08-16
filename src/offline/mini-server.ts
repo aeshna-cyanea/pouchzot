@@ -105,6 +105,13 @@ export function createMiniServer(
     if (ended) return
     ended = true
     disarmWatchdog()
+    // Free the dead engine now (~100 MB of wasm memory + module) rather than
+    // when the player leaves the end screen (dispose). Safe: the exit persist
+    // already landed — pocketzot_persist() Asyncify-blocks on syncfs inside
+    // crawl's end() BEFORE process exit (pocketzot-ipc.h) — and every
+    // post-end port use is gated on `ended` above, so inputs were going
+    // nowhere anyway. dispose()'s terminate stays as the idempotent backstop.
+    port.terminate()
     deliver({
       msg: 'game_ended',
       reason: exitReason ?? (code === 0 ? 'saved' : 'crash'),
