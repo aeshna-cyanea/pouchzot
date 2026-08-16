@@ -50,8 +50,17 @@ interface CrawlOverrides {
   pocketzotSeedCaches?: (fs: CrawlFS) => Promise<void>
   // Pre-fetched engine bytes: with these provided the Emscripten glue does
   // no artifact fetches of its own, which is what routes everything through
-  // the worker's cache+gunzip path below.
-  wasmBinary?: Uint8Array
+  // the worker's cache+gunzip path below. instantiateWasm (stock Emscripten
+  // hook, checked by the glue before any of its own binary handling) rather
+  // than Module.wasmBinary: the glue copies wasmBinary into a module-scope
+  // var it never clears — ~24 MB retained for the whole session — and its
+  // getBinarySync makes a second transient ~24 MB copy on top
+  // (`new Uint8Array(wasmBinary)` on a Uint8Array copies). The hook keeps
+  // the bytes in a closure that dies with instantiation.
+  instantiateWasm?: (
+    info: WebAssembly.Imports,
+    receiveInstance: (inst: WebAssembly.Instance, mod: WebAssembly.Module) => void,
+  ) => object
   getPreloadedPackage?: (name: string, size: number) => ArrayBuffer
 }
 
@@ -294,7 +303,9 @@ async function start(name: string): Promise<void> {
   // same exit path as a missing artifact.
   let cache: Cache | null = null
   let factory: CrawlFactory
-  let wasmBinary: Uint8Array
+  // Nulled once handed to WebAssembly.instantiate (instantiateWasm below) so
+  // the binary is collectable the moment instantiation is done with it.
+  let wasmBytes: Uint8Array<ArrayBuffer> | null = null
   let dataBuffer: ArrayBuffer
   let glueSetsCrawlDir = false
   try {
@@ -311,7 +322,7 @@ async function start(name: string): Promise<void> {
       fetchArtifact(cache, stats, '/offline/crawl.wasm.gz', '/offline/crawl.wasm').then(gunzipIfNeeded),
       fetchArtifact(cache, stats, '/offline/crawl.data.gz', '/offline/crawl.data').then(gunzipIfNeeded),
     ])
-    wasmBinary = new Uint8Array(wasmBuf)
+    wasmBytes = new Uint8Array(wasmBuf)
     dataBuffer = dataBuf
     post({ type: 'log', text: `artifacts loaded: ${stats.cacheHits} from cache, ${stats.netFetches} from network` })
     // Only worth a user-facing line when bytes actually crossed the network
@@ -411,7 +422,28 @@ async function start(name: string): Promise<void> {
       print: (text) => post({ type: 'log', text }),
       printErr: (text) => post({ type: 'log', text }),
       pocketzotSeedCaches: (fs) => seedCaches(fs, cache),
-      wasmBinary,
+      instantiateWasm: (info, receiveInstance) => {
+        const bytes = wasmBytes
+        wasmBytes = null
+        // A rejection here never settles the factory promise (the glue only
+        // listens for receiveInstance), so the catch around factory() can't
+        // report it — surface the same error exit from here.
+        void WebAssembly.instantiate(bytes!, info).then(
+          (result) => receiveInstance(result.instance, result.module),
+          (e: unknown) => {
+            post({
+              type: 'lines',
+              chunk: `*${JSON.stringify({ msg: 'exit_reason', type: 'error', message: `Offline engine failed to start: ${String(e)}` })}\n`,
+            })
+            postExit(1)
+          },
+        )
+        return {}
+      },
+      // dataBuffer staying referenced by this closure for the session is
+      // free, not a leak: the glue mounts the package as canOwn subarrays of
+      // this same ArrayBuffer (processPackageData), so the buffer IS the
+      // MEMFS backing for the data files — dropping it would free nothing.
       getPreloadedPackage: (_name, size) => {
         if (size !== dataBuffer.byteLength)
           post({ type: 'log', text: `crawl.data size mismatch: glue expects ${size}, have ${dataBuffer.byteLength}` })
