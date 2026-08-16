@@ -3857,13 +3857,15 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 
   /* Both floating text strips are flush with the physical LEFT screen edge
      (the map column is full-bleed): on phones the first characters land in
-     the rounded corner / notch ear, so inset the text clear — same
-     content-vs-background call as #ui-overlay's padding-left above. The
-     scrim stays edge-to-edge (left:0 in the base rules); portrait reports
-     0 side insets, collapsing this to the base 0.2rem. */
+     the rounded corner / notch ear, so move the whole BOX clear — the box,
+     not just the text (an earlier padding-left version left dead scrim and
+     a hanging --more-- border to the left of the text). Unlike the
+     --safe-top treatment above there's nothing to back under the corner,
+     so the scrim edge should track the text. Portrait reports 0 side
+     insets, collapsing this to the base left:0. */
   #game-messages,
   #xdesc-strip {
-    padding-left: max(0.2rem, var(--safe-left));
+    left: var(--safe-left);
   }
 
   /* Monster list: in-flow sidebar card in the `mons` row, directly beneath the
