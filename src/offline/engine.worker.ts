@@ -55,8 +55,9 @@ interface CrawlOverrides {
   // than Module.wasmBinary: the glue copies wasmBinary into a module-scope
   // var it never clears — ~24 MB retained for the whole session — and its
   // getBinarySync makes a second transient ~24 MB copy on top
-  // (`new Uint8Array(wasmBinary)` on a Uint8Array copies). The hook keeps
-  // the bytes in a closure that dies with instantiation.
+  // (`new Uint8Array(wasmBinary)` on a Uint8Array copies). The hook instead
+  // streams the bytes through the compiler (instantiateWasmFrom) — nothing
+  // outlives instantiation.
   instantiateWasm?: (
     info: WebAssembly.Imports,
     receiveInstance: (inst: WebAssembly.Instance, mod: WebAssembly.Module) => void,
@@ -206,8 +207,8 @@ function nudge(): void {
 // version handling.
 
 import {
-  bootArtifactsCached, cachedEngineBuild, fetchArtifact, fetchVersion, gunzipIfNeeded,
-  markEngineSetComplete, newStats, openOfflineStores,
+  bootArtifactsCached, cachedEngineBuild, fetchArtifact, fetchArtifactResponse, fetchVersion,
+  gunzipIfNeeded, gunzipStreamIfNeeded, markEngineSetComplete, newStats, openOfflineStores,
 } from './artifact-store'
 
 const workerLog = (text: string): void => post({ type: 'log', text })
@@ -292,6 +293,37 @@ async function seedCaches(fs: CrawlFS, cache: Cache | null): Promise<void> {
   post({ type: 'log', text: `seeded ${manifest.files.length} prewarmed cache files (stamp ${stamp})` })
 }
 
+// The engine wasm's fetchArtifact alternative-list (gz-first, like the
+// boot-critical set in artifact-store.ts), shared by the streaming fetch and
+// the buffered fallback below.
+const WASM_PATHS = ['/offline/crawl.wasm.gz', '/offline/crawl.wasm'] as const
+
+// Streaming compile: gunzip pipes straight into the compiler, so the ~24 MB
+// binary never exists as a buffer and compilation overlaps decompression.
+// The synthetic Response is required — instantiateStreaming demands an
+// application/wasm content-type, and the stored response's is gzip's. On any
+// failure, fall back to the buffered path via a re-read of the artifact (a
+// cache hit — the bytes were just stored): that covers engines without
+// instantiateStreaming or ones that refuse a synthetic Response, at the cost
+// of one wasted attempt when the artifact itself is corrupt.
+async function instantiateWasmFrom(
+  res: Response,
+  cache: Cache | null,
+  info: WebAssembly.Imports,
+): Promise<WebAssembly.WebAssemblyInstantiatedSource> {
+  if (typeof WebAssembly.instantiateStreaming === 'function') {
+    try {
+      const stream = await gunzipStreamIfNeeded(res)
+      return await WebAssembly.instantiateStreaming(
+        new Response(stream, { headers: { 'content-type': 'application/wasm' } }), info)
+    } catch (e) {
+      workerLog(`streaming wasm compile failed (${String(e)}) — retrying buffered`)
+    }
+  }
+  const buf = await gunzipIfNeeded(await fetchArtifact(cache, newStats(), ...WASM_PATHS))
+  return WebAssembly.instantiate(buf, info)
+}
+
 async function start(name: string): Promise<void> {
   // Boot-phase progress: the mini-server turns these into message-log lines,
   // covering the pre-first-output window (download, wasm instantiation, cache
@@ -303,26 +335,27 @@ async function start(name: string): Promise<void> {
   // same exit path as a missing artifact.
   let cache: Cache | null = null
   let factory: CrawlFactory
-  // Nulled once handed to WebAssembly.instantiate (instantiateWasm below) so
-  // the binary is collectable the moment instantiation is done with it.
-  let wasmBytes: Uint8Array<ArrayBuffer> | null = null
+  // Nulled once handed to instantiation (instantiateWasm below) so nothing
+  // outlives the compile — the wasm streams through it, never buffered.
+  let wasmRes: Response | null = null
   let dataBuffer: ArrayBuffer
   let glueSetsCrawlDir = false
   try {
     cache = await openArtifactCache()
-    // All three artifacts go through the cache+gunzip path; wasm and data
-    // are handed to the glue as bytes (wasmBinary / getPreloadedPackage), so
-    // the glue performs no fetches of its own. The glue itself is fetched +
-    // blob-URL imported rather than imported by path: the Vite dev server
-    // refuses to module-serve files under public/ ("can only be referenced
-    // via HTML tags"), and a blob module bypasses its middleware entirely
-    // while behaving identically in production.
-    const [glueBuf, wasmBuf, dataBuf] = await Promise.all([
+    // All three artifacts go through the cache path; data is handed to the
+    // glue as bytes (getPreloadedPackage) and the wasm as an unconsumed
+    // Response streamed into instantiation, so the glue performs no fetches
+    // of its own. The glue itself is fetched + blob-URL imported rather than
+    // imported by path: the Vite dev server refuses to module-serve files
+    // under public/ ("can only be referenced via HTML tags"), and a blob
+    // module bypasses its middleware entirely while behaving identically in
+    // production.
+    const [glueBuf, wasmResponse, dataBuf] = await Promise.all([
       fetchArtifact(cache, stats, '/offline/crawl.js'),
-      fetchArtifact(cache, stats, '/offline/crawl.wasm.gz', '/offline/crawl.wasm').then(gunzipIfNeeded),
+      fetchArtifactResponse(cache, stats, ...WASM_PATHS),
       fetchArtifact(cache, stats, '/offline/crawl.data.gz', '/offline/crawl.data').then(gunzipIfNeeded),
     ])
-    wasmBytes = new Uint8Array(wasmBuf)
+    wasmRes = wasmResponse
     dataBuffer = dataBuf
     post({ type: 'log', text: `artifacts loaded: ${stats.cacheHits} from cache, ${stats.netFetches} from network` })
     // Only worth a user-facing line when bytes actually crossed the network
@@ -423,12 +456,12 @@ async function start(name: string): Promise<void> {
       printErr: (text) => post({ type: 'log', text }),
       pocketzotSeedCaches: (fs) => seedCaches(fs, cache),
       instantiateWasm: (info, receiveInstance) => {
-        const bytes = wasmBytes
-        wasmBytes = null
+        const res = wasmRes
+        wasmRes = null
         // A rejection here never settles the factory promise (the glue only
         // listens for receiveInstance), so the catch around factory() can't
         // report it — surface the same error exit from here.
-        void WebAssembly.instantiate(bytes!, info).then(
+        void instantiateWasmFrom(res!, cache, info).then(
           (result) => receiveInstance(result.instance, result.module),
           (e: unknown) => {
             post({
