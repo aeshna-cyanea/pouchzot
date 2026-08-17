@@ -9,9 +9,13 @@ formatting and HTML chrome differ. Drift is a bug.
 
 Notable changes to PocketZot, newest first.
 
-## 2026-08-16
+## 2026-08-17
 
-- Offline games now use less memory and start faster.
+- Offline games now use less memory and release it sooner after game
+  exit.
+- The app now recovers on its own when iPhone relaunches it into an
+  outdated cached version. Previously this could lead to a black screen
+  when starting an offline game, until the app was restarted.
 
 ## 2026-08-14
 
