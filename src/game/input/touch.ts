@@ -37,8 +37,8 @@ type DpadDef =
 type BindTap = (btn: HTMLElement, fire: () => void, opts?: { repeat?: boolean }) => void
 
 // Hold-to-repeat pacing, roughly matching OS keyboard auto-repeat defaults.
-export const REPEAT_DELAY_MS = 400
-export const REPEAT_INTERVAL_MS = 100
+export const REPEAT_DELAY_MS = 350
+export const REPEAT_INTERVAL_MS = 85
 
 // game-view owns the spell data (and the tile loader / cast logic), so it
 // supplies the grid DOM for the z tab; touch.ts just hosts it in the panel's
