@@ -10,7 +10,7 @@ import {
 
 // Route-map fetch stub: exact-path lookup, 404 otherwise. A `null` value
 // simulates a network failure (fetch rejects).
-type Routes = Record<string, { body?: string; type?: string; status?: number } | null>
+type Routes = Record<string, { body?: string; type?: string; status?: number; length?: string } | null>
 
 function stubFetch(routes: Routes): void {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -20,7 +20,10 @@ function stubFetch(routes: Routes): void {
     if (!r) return new Response('nope', { status: 404, headers: { 'Content-Type': 'text/plain' } })
     return new Response(r.body ?? 'data', {
       status: r.status ?? 200,
-      headers: { 'Content-Type': r.type ?? 'application/octet-stream' },
+      headers: {
+        'Content-Type': r.type ?? 'application/octet-stream',
+        ...(r.length !== undefined ? { 'Content-Length': r.length } : {}),
+      },
     })
   }))
 }
@@ -162,18 +165,16 @@ describe('fetchArtifactResponse', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it('counts network bytes from Content-Length, 0 when absent', async () => {
+  it('counts network bytes from Content-Length, never the body', async () => {
     const c = await artifactCache()
-    stubFetch({ '/offline/crawl.wasm': { body: 'wasm-plain' } })
+    // Header deliberately disagrees with the 10-byte body: body-counting
+    // would report 10, header-counting the declared wire size.
+    stubFetch({ '/offline/crawl.wasm': { body: 'wasm-plain', length: '7340032' } })
     const stats = newStats()
     const res = await fetchArtifactResponse(
       c as unknown as Cache, stats, '/offline/crawl.wasm.gz', '/offline/crawl.wasm')
     expect(await res.text()).toBe('wasm-plain')
-    expect(stats.netFetches).toBe(1)
-    // The Response stub carries a Content-Length only when the platform sets
-    // one; either way the count must be that header, never the body.
-    const expected = Number(res.headers.get('content-length')) || 0
-    expect(stats.netBytes).toBe(expected)
+    expect(stats).toEqual({ cacheHits: 0, netFetches: 1, netBytes: 7340032 })
     expect(await c.match('/offline/crawl.wasm')).toBeTruthy()
   })
 })
@@ -190,6 +191,19 @@ describe('gunzipStreamIfNeeded', () => {
       .toBe('wasm bytes')
     expect(await drain(await gunzipStreamIfNeeded(new Response('plain bytes'))))
       .toBe('plain bytes')
+  })
+
+  it('cancels the abandoned body when DecompressionStream is missing', async () => {
+    const gz = await gzip('doomed')
+    let cancelled = false
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(gz) },
+      cancel() { cancelled = true },
+    })
+    vi.stubGlobal('DecompressionStream', undefined)
+    await expect(gunzipStreamIfNeeded(new Response(body))).rejects.toThrow(/DecompressionStream/)
+    await Promise.resolve() // let the fire-and-forget cancel propagate
+    expect(cancelled).toBe(true)
   })
 
   it('sniffs the magic pair across a chunk boundary', async () => {

@@ -81,6 +81,19 @@ function postExit(code: number): void {
   post({ type: 'exit', code })
 }
 
+// The one synthesis site for a starred exit_reason + failure exit — the
+// worker's half of the mini-server's handleStarred contract. Latched on
+// exitPosted like postExit, so a second failure can't emit a contradictory
+// exit_reason after the first.
+function postErrorExit(type: 'error' | 'crash', message: string): void {
+  if (exitPosted) return
+  post({
+    type: 'lines',
+    chunk: `*${JSON.stringify({ msg: 'exit_reason', type, message })}\n`,
+  })
+  postExit(1)
+}
+
 // A wasm trap (or any uncaught error) after startup kills the engine but not
 // the worker — without an exit the client would sit on a frozen map forever:
 // the boot watchdog is disarmed once game content flows, LocalConnection
@@ -92,12 +105,7 @@ function postExit(code: number): void {
 // stack overflow, OOM, unreachable).
 function crashed(text: string): void {
   post({ type: 'log', text })
-  if (exitPosted) return
-  post({
-    type: 'lines',
-    chunk: `*${JSON.stringify({ msg: 'exit_reason', type: 'crash', message: 'The offline engine crashed. Your last save checkpoint is intact — resume to pick up from it.' })}\n`,
-  })
-  postExit(1)
+  postErrorExit('crash', 'The offline engine crashed. Your last save checkpoint is intact — resume to pick up from it.')
 }
 self.addEventListener('error', (e: ErrorEvent) => {
   crashed(`worker error: ${e.message} @ ${e.filename}:${e.lineno}`)
@@ -207,8 +215,9 @@ function nudge(): void {
 // version handling.
 
 import {
-  bootArtifactsCached, cachedEngineBuild, fetchArtifact, fetchArtifactResponse, fetchVersion,
-  gunzipIfNeeded, gunzipStreamIfNeeded, markEngineSetComplete, newStats, openOfflineStores,
+  bootArtifactsCached, cachedEngineBuild, ENGINE_DATA, ENGINE_GLUE, ENGINE_WASM,
+  fetchArtifact, fetchArtifactResponse, fetchVersion, gunzipIfNeeded, gunzipStreamIfNeeded,
+  markEngineSetComplete, newStats, openOfflineStores, PREWARM_BIN, PREWARM_MANIFEST,
 } from './artifact-store'
 
 const workerLog = (text: string): void => post({ type: 'log', text })
@@ -261,7 +270,7 @@ const PREWARM_STAMP_PATH = '/crawl/.pocketzot-prewarm'
 async function seedCaches(fs: CrawlFS, cache: Cache | null): Promise<void> {
   let manifest: { stamp: string | number, files: { path: string, offset: number, size: number }[] }
   try {
-    const raw = await fetchArtifact(cache, stats, '/offline/prewarm/manifest.json')
+    const raw = await fetchArtifact(cache, stats, ...PREWARM_MANIFEST)
     manifest = JSON.parse(new TextDecoder().decode(raw)) as typeof manifest
   } catch {
     return // no prewarm shipped — the engine builds its caches itself
@@ -276,8 +285,7 @@ async function seedCaches(fs: CrawlFS, cache: Cache | null): Promise<void> {
   post({ type: 'progress', text: 'Preparing first-run data...' })
   // One pack fetch for all ~575 cache files; nothing is written until the
   // whole pack is here, so a failed fetch can't leave a half-seeded set.
-  const pack = new Uint8Array(await gunzipIfNeeded(await fetchArtifact(
-    cache, stats, '/offline/prewarm/prewarm.bin.gz', '/offline/prewarm/prewarm.bin')))
+  const pack = new Uint8Array(await gunzipIfNeeded(await fetchArtifact(cache, stats, ...PREWARM_BIN)))
 
   for (const f of manifest.files) {
     const path = `/crawl/${f.path}`
@@ -293,35 +301,39 @@ async function seedCaches(fs: CrawlFS, cache: Cache | null): Promise<void> {
   post({ type: 'log', text: `seeded ${manifest.files.length} prewarmed cache files (stamp ${stamp})` })
 }
 
-// The engine wasm's fetchArtifact alternative-list (gz-first, like the
-// boot-critical set in artifact-store.ts), shared by the streaming fetch and
-// the buffered fallback below.
-const WASM_PATHS = ['/offline/crawl.wasm.gz', '/offline/crawl.wasm'] as const
-
 // Streaming compile: gunzip pipes straight into the compiler, so the ~24 MB
 // binary never exists as a buffer and compilation overlaps decompression.
 // The synthetic Response is required — instantiateStreaming demands an
-// application/wasm content-type, and the stored response's is gzip's. On any
-// failure, fall back to the buffered path via a re-read of the artifact (a
-// cache hit — the bytes were just stored): that covers engines without
-// instantiateStreaming or ones that refuse a synthetic Response, at the cost
-// of one wasted attempt when the artifact itself is corrupt.
+// application/wasm content-type, and the stored response's is gzip's. On a
+// streaming failure (an engine that refuses a synthetic Response; a corrupt
+// artifact costs one wasted attempt), fall back to the buffered path via a
+// re-read of the artifact — a cache hit wherever a store exists, the bytes
+// were just stored; a no-store or quota-squeezed device refetches, safely:
+// reaching the catch off the network path means we are online. An engine
+// without instantiateStreaming skips straight to consuming the Response it
+// already has.
 async function instantiateWasmFrom(
   res: Response,
   cache: Cache | null,
   info: WebAssembly.Imports,
 ): Promise<WebAssembly.WebAssemblyInstantiatedSource> {
   if (typeof WebAssembly.instantiateStreaming === 'function') {
+    let stream: ReadableStream<Uint8Array> | null = null
     try {
-      const stream = await gunzipStreamIfNeeded(res)
+      stream = await gunzipStreamIfNeeded(res)
       return await WebAssembly.instantiateStreaming(
         new Response(stream, { headers: { 'content-type': 'application/wasm' } }), info)
     } catch (e) {
+      // Release the abandoned body before the fallback allocates its buffers
+      // (cancel throws if instantiateStreaming already locked the stream —
+      // then it owns the teardown).
+      void stream?.cancel().catch(() => { /* locked or errored */ })
       workerLog(`streaming wasm compile failed (${String(e)}) — retrying buffered`)
+      const buf = await gunzipIfNeeded(await fetchArtifact(cache, newStats(), ...ENGINE_WASM))
+      return WebAssembly.instantiate(buf, info)
     }
   }
-  const buf = await gunzipIfNeeded(await fetchArtifact(cache, newStats(), ...WASM_PATHS))
-  return WebAssembly.instantiate(buf, info)
+  return WebAssembly.instantiate(await gunzipIfNeeded(await res.arrayBuffer()), info)
 }
 
 async function start(name: string): Promise<void> {
@@ -351,9 +363,9 @@ async function start(name: string): Promise<void> {
     // module bypasses its middleware entirely while behaving identically in
     // production.
     const [glueBuf, wasmResponse, dataBuf] = await Promise.all([
-      fetchArtifact(cache, stats, '/offline/crawl.js'),
-      fetchArtifactResponse(cache, stats, ...WASM_PATHS),
-      fetchArtifact(cache, stats, '/offline/crawl.data.gz', '/offline/crawl.data').then(gunzipIfNeeded),
+      fetchArtifact(cache, stats, ...ENGINE_GLUE),
+      fetchArtifactResponse(cache, stats, ...ENGINE_WASM),
+      fetchArtifact(cache, stats, ...ENGINE_DATA).then(gunzipIfNeeded),
     ])
     wasmRes = wasmResponse
     dataBuffer = dataBuf
@@ -387,11 +399,7 @@ async function start(name: string): Promise<void> {
     // No artifact deployed (expected on a checkout without an engine
     // install). Surface through the normal exit path: mini-server turns the
     // starred exit_reason + nonzero exit into game_ended{reason:'error'}.
-    post({
-      type: 'lines',
-      chunk: `*${JSON.stringify({ msg: 'exit_reason', type: 'error', message: `Offline engine not installed or unreachable (${e instanceof Error ? e.message : String(e)}).` })}\n`,
-    })
-    postExit(1)
+    postErrorExit('error', `Offline engine not installed or unreachable (${e instanceof Error ? e.message : String(e)}).`)
     return
   }
 
@@ -460,17 +468,16 @@ async function start(name: string): Promise<void> {
         wasmRes = null
         // A rejection here never settles the factory promise (the glue only
         // listens for receiveInstance), so the catch around factory() can't
-        // report it — surface the same error exit from here.
-        void instantiateWasmFrom(res!, cache, info).then(
-          (result) => receiveInstance(result.instance, result.module),
-          (e: unknown) => {
-            post({
-              type: 'lines',
-              chunk: `*${JSON.stringify({ msg: 'exit_reason', type: 'error', message: `Offline engine failed to start: ${String(e)}` })}\n`,
-            })
-            postExit(1)
-          },
-        )
+        // report it — surface the same error exit from here. .catch, not a
+        // two-arg .then: a throw from receiveInstance itself (the glue's
+        // export wiring, e.g. a skewed cached glue/wasm pair) must land here
+        // as a boot error, not in the unhandledrejection crash net whose
+        // "resume to pick up" advice is wrong for a boot that never started.
+        void instantiateWasmFrom(res!, cache, info)
+          .then((result) => receiveInstance(result.instance, result.module))
+          .catch((e: unknown) => {
+            postErrorExit('error', `Offline engine failed to start: ${String(e)}`)
+          })
         return {}
       },
       // dataBuffer staying referenced by this closure for the session is
@@ -484,11 +491,7 @@ async function start(name: string): Promise<void> {
       },
     })
   } catch (e) {
-    post({
-      type: 'lines',
-      chunk: `*${JSON.stringify({ msg: 'exit_reason', type: 'error', message: `Offline engine failed to start: ${String(e)}` })}\n`,
-    })
-    postExit(1)
+    postErrorExit('error', `Offline engine failed to start: ${String(e)}`)
     return
   }
   sampleHeap()
@@ -499,6 +502,12 @@ async function start(name: string): Promise<void> {
   // quota failures on cache.put, so fetch-success alone proves nothing.
   void markEngineSetComplete(cache).then((complete) => {
     if (!complete) workerLog('artifact set incomplete after boot (storage quota?) — not marked offline-ready')
+  }).catch((e: unknown) => {
+    // Must not escape: an unhandled rejection here reaches the crash net
+    // AFTER a successful boot — a phantom crash exit that terminates a live
+    // engine over a housekeeping probe (cache ops can reject under storage
+    // pressure, the very case this verification exists for).
+    workerLog(`readiness marker check failed: ${String(e)}`)
   })
   for (const m of pending.splice(0)) feed(m)
 }

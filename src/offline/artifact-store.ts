@@ -42,13 +42,15 @@ const COMPLETE_KEYS: Record<string, string> = {
 }
 
 // The boot-critical engine set, as fetchArtifact alternative-lists (gzipped
-// name first, plain fallback for older installs). Prewarm is optional at
-// deploy time but all-or-nothing once its manifest is present.
-const ENGINE_GLUE = ['/offline/crawl.js']
-const ENGINE_WASM = ['/offline/crawl.wasm.gz', '/offline/crawl.wasm']
-const ENGINE_DATA = ['/offline/crawl.data.gz', '/offline/crawl.data']
-const PREWARM_MANIFEST = ['/offline/prewarm/manifest.json']
-const PREWARM_BIN = ['/offline/prewarm/prewarm.bin.gz', '/offline/prewarm/prewarm.bin']
+// name first, plain fallback for older installs). Exported for the worker's
+// boot fetches — one list per artifact, so boot and the readiness download
+// can't drift apart on paths. Prewarm is optional at deploy time but
+// all-or-nothing once its manifest is present.
+export const ENGINE_GLUE = ['/offline/crawl.js']
+export const ENGINE_WASM = ['/offline/crawl.wasm.gz', '/offline/crawl.wasm']
+export const ENGINE_DATA = ['/offline/crawl.data.gz', '/offline/crawl.data']
+export const PREWARM_MANIFEST = ['/offline/prewarm/manifest.json']
+export const PREWARM_BIN = ['/offline/prewarm/prewarm.bin.gz', '/offline/prewarm/prewarm.bin']
 
 // Tiles gamedata file set when the install ships no manifest.json (installs
 // before 2026-07-14). The manifest, when present, is authoritative — the
@@ -268,9 +270,17 @@ export async function gunzipStreamIfNeeded(res: Response): Promise<ReadableStrea
     head.push(value)
     got += value.byteLength
   }
+  // The magic pair can straddle a chunk boundary (a 1-byte first read).
+  // Read before the stream is built: its start() empties `head`.
+  const b0 = head[0]?.[0]
+  const b1 = (head[0]?.byteLength ?? 0) > 1 ? head[0][1] : head[1]?.[0]
   const replay = new ReadableStream<Uint8Array>({
     start(controller) {
       for (const chunk of head) controller.enqueue(chunk)
+      // The queue owns the chunks now; this closure lives until the consumer
+      // finishes the whole stream, and a first read can span most of the
+      // body — keeping them here would pin megabytes across the compile.
+      head.length = 0
     },
     async pull(controller) {
       const { done, value } = await reader.read()
@@ -281,12 +291,13 @@ export async function gunzipStreamIfNeeded(res: Response): Promise<ReadableStrea
       return reader.cancel(reason)
     },
   })
-  // The magic pair can straddle a chunk boundary (a 1-byte first read).
-  const b0 = head[0]?.[0]
-  const b1 = (head[0]?.byteLength ?? 0) > 1 ? head[0][1] : head[1]?.[0]
   if (b0 !== 0x1f || b1 !== 0x8b) return replay
-  if (typeof DecompressionStream === 'undefined')
+  if (typeof DecompressionStream === 'undefined') {
+    // The reader holds the body locked with chunks buffered; throwing
+    // without cancelling would pin them until GC.
+    void reader.cancel().catch(() => { /* already errored */ })
     throw new Error('gzipped engine artifact but DecompressionStream is unavailable')
+  }
   return replay.pipeThrough(new DecompressionStream('gzip') as ReadableWritablePair<Uint8Array, Uint8Array>)
 }
 

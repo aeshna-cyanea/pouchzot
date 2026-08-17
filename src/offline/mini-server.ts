@@ -99,19 +99,25 @@ export function createMiniServer(
     }, WATCHDOG_MS)
   }
 
+  // Engine teardown, shared by every exit path; false = a prior path already
+  // ran it. Terminating at end-time (not just dispose) frees the dead engine
+  // (~100 MB of wasm memory + module) the moment it exits rather than when
+  // the player leaves the end screen. Safe: the exit persist already landed —
+  // pocketzot_persist() Asyncify-blocks on syncfs inside crawl's end() BEFORE
+  // process exit (pocketzot-ipc.h) — and every post-end port use is gated on
+  // `ended`, so inputs were going nowhere anyway.
+  const shutdown = (): boolean => {
+    if (ended) return false
+    ended = true
+    disarmWatchdog()
+    port.terminate()
+    return true
+  }
+
   // Emits at most one terminal message: game-view routes BOTH game_ended and
   // go_lobby to exitToLobby, so a pair would double-invoke the exit callback.
   const end = (code: number): void => {
-    if (ended) return
-    ended = true
-    disarmWatchdog()
-    // Free the dead engine now (~100 MB of wasm memory + module) rather than
-    // when the player leaves the end screen (dispose). Safe: the exit persist
-    // already landed — pocketzot_persist() Asyncify-blocks on syncfs inside
-    // crawl's end() BEFORE process exit (pocketzot-ipc.h) — and every
-    // post-end port use is gated on `ended` above, so inputs were going
-    // nowhere anyway. dispose()'s terminate stays as the idempotent backstop.
-    port.terminate()
+    if (!shutdown()) return
     deliver({
       msg: 'game_ended',
       reason: exitReason ?? (code === 0 ? 'saved' : 'crash'),
@@ -229,9 +235,7 @@ export function createMiniServer(
       } else if (msg.msg === 'go_lobby') {
         // Unreachable from an offline played game (spectator-only send sites)
         // but absorb defensively: kill the engine rather than leak it.
-        ended = true
-        disarmWatchdog()
-        port.terminate()
+        shutdown()
       } else {
         console.warn('offline: unroutable client message absorbed:', msg.msg)
       }
@@ -243,9 +247,7 @@ export function createMiniServer(
     },
 
     dispose(): void {
-      ended = true
-      disarmWatchdog()
-      port.terminate()
+      shutdown()
     },
   }
 }
