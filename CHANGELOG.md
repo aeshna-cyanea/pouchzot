@@ -9,6 +9,10 @@ formatting and HTML chrome differ. Drift is a bug.
 
 Notable changes to PocketZot, newest first.
 
+## 2026-08-16
+
+- Offline games now use less memory and start faster.
+
 ## 2026-08-14
 
 - Reworked the --more-- prompt.
