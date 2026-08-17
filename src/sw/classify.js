@@ -15,6 +15,95 @@ export const PRECACHE_EXTRAS = [
   '/icon-maskable-512.png',
 ]
 
+// Stale-shell rescue (2026-08-17, observed live on testproj): iOS can
+// relaunch a crashed PWA from a start-document snapshot MANY deploys old,
+// and cold launches don't reliably rewrite that snapshot — so the same
+// ancient shell comes back after every crash. Its hash-named chunks are by
+// then gone from every layer (old precaches reaped at activate, origin
+// rotated → 404), and nothing in the stale page's own code can be updated
+// to cope. The service worker is the one component that is always current
+// for such a page, so the rescue lives here: a cache-missed /assets/*.js
+// request that the network answers 404/410 can only be a stale shell asking
+// for a chunk this deploy no longer has — serve STALE_CHUNK_RESCUE_JS in
+// its place. Predicate is deliberately tight: script chunks only (a missing
+// css/png can't run a recovery), and only definitive not-found statuses —
+// network errors and 5xx pass through untouched.
+// A script chunk — the only requests the rescue may claim: a missing
+// css/png can't run a recovery, and only hash-named script chunks carry the
+// stale-shell signal.
+export function isChunkPath(url) {
+  return url.pathname.startsWith('/assets/') && url.pathname.endsWith('.js')
+}
+
+// The ORIGIN is the authority on staleness: a chunk hash the deploy answers
+// 404/410 for has rotated away, so the requester is a stale shell. This
+// only works because sw.js fetches chunk misses with cache:'reload' —
+// /assets/* is served immutable+1y, so a plain fetch would let the browser
+// HTTP cache answer 200 for a dead hash and boot a weeks-old zombie
+// (observed live: the pinned 7/31 snapshot ran as a full July app off
+// HTTP-cached chunks and only tripped at its evicted engine-worker chunk).
+export function shouldRescueStaleChunk(url, status) {
+  return (status === 404 || status === 410) && isChunkPath(url)
+}
+
+// The OFFLINE discriminator, consulted only when the network fetch itself
+// rejected and no cache generation held the chunk: a hash foreign to the
+// current build's manifest can then never be served by any layer → rescue;
+// an in-manifest chunk missing offline is a plain outage → let the failure
+// propagate. Deliberately NOT consulted while online — a fresh post-deploy
+// page under the still-active old SW requests new-hash chunks foreign to
+// the old manifest within milliseconds of HTML parse, before the waiting
+// SW's install has even started (registration defers past `load`), so
+// membership-before-network misdiagnosed every returning user's first
+// post-deploy load as a stale shell (review catch, 2026-08-17). Online,
+// the origin's answer distinguishes those cases; offline it can't, and
+// this can.
+export function isForeignChunk(url, assets) {
+  return isChunkPath(url) && assets.indexOf(url.pathname) === -1
+}
+
+// The synthetic chunk. Runs in whichever context requested the missing
+// script and recovers per context:
+// - window (the shell's own <script>/dynamic imports): one reload —
+//   a real navigation fetches the current deploy's HTML (or the active
+//   SW's own generation-pinned shell offline). Latched via the SAME
+//   sessionStorage key as the in-page self-heal (util/self-heal.ts), so a
+//   session performs at most one automatic reload between them. When the
+//   reload is unavailable (already latched, or storage unwritable so no
+//   loop guard exists) the script THROWS: the requester must see a failed
+//   load — a dynamic import rejects into its error path — never a
+//   silently-successful empty module (a bare return resolved
+//   import('./offline/boot') with no exports and died as an unhandled
+//   TypeError; review catch, 2026-08-17).
+// - dedicated worker (the engine worker chunk — the case observed live):
+//   a worker can't navigate, but every shell since offline launch speaks
+//   the engine-port protocol, so post the standard starred error exit and
+//   let the stale shell's own machinery raise its game-ended dialog.
+export const STALE_CHUNK_RESCUE_JS = `(() => {
+  'use strict'
+  if (typeof document === 'undefined') {
+    postMessage({ type: 'progress', text: 'This copy of the app is out of date.' })
+    postMessage({ type: 'lines', chunk: '*' + JSON.stringify({
+      msg: 'exit_reason', type: 'error',
+      message: 'This copy of the app is out of date. Close the app completely and reopen it to update — your save is intact.',
+    }) + '\\n' })
+    postMessage({ type: 'exit', code: 1 })
+    return
+  }
+  let latched = true
+  try {
+    latched = sessionStorage.getItem('pocketzot:stale-shell-reloaded') !== null
+    if (!latched) sessionStorage.setItem('pocketzot:stale-shell-reloaded', '1')
+  } catch (_e) {
+    latched = true
+  }
+  if (latched) {
+    throw new Error('This copy of the app is out of date and could not update itself. Close the app completely and reopen it.')
+  }
+  location.reload()
+})()
+`
+
 // classify(url, {method, mode, sameOrigin}) →
 //   'network-first' | 'cache-first' | 'passthrough'
 // 'passthrough' never sees respondWith — browser default handling (game

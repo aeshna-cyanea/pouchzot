@@ -7,6 +7,8 @@
 // bytes). WorkerEnginePort hosts the real WASM build; FakeEnginePort
 // (fake-engine.ts) replays golden fixtures so the whole seam runs without it.
 
+import { staleShellReloadOnce } from '../util/self-heal'
+
 export interface EnginePort {
   // Begin emitting. Wire onOutput/onExit before calling.
   start(): void
@@ -165,6 +167,10 @@ export class WorkerEnginePort implements EnginePort {
   onProgress: (text: string) => void = () => {}
   private worker: Worker | null = null
   private meter: PerfMeter | null = null
+  // Whether the worker has delivered ANY message. Its very first act is a
+  // progress post, so this cleanly separates "worker script never executed"
+  // (load failure) from errors thrown by a running worker.
+  private gotMessage = false
   // DEV diagnostics: last raw engine output chunks, pre-parse (so losses in
   // the mini-server's line handling are visible). __pzEngine.chunks in the
   // console.
@@ -184,7 +190,29 @@ export class WorkerEnginePort implements EnginePort {
     this.worker = new Worker(new URL('./engine.worker.ts', import.meta.url), {
       type: 'module',
     })
+    // Script-load failure net. A worker whose script never loads (observed
+    // live: an iOS crash relaunch resurrected a stale start doc whose
+    // engine.worker chunk hash had rotated off the deploy — 404) fires
+    // `error` on the Worker object and nothing else, ever: no progress, no
+    // output, no exit — a silent black screen. First response is the
+    // stale-shell self-heal reload; if that's spent (or storage is
+    // unavailable), synthesize the same starred error exit the worker's own
+    // boot-failure path posts, so the normal game_ended dialog shows.
+    // Errors from a RUNNING worker are its own crash net's job
+    // (engine.worker.ts): gotMessage gates this to the never-ran case.
+    this.worker.onerror = (e: ErrorEvent) => {
+      if (this.gotMessage) return
+      console.warn('[engine] worker script failed to load', e.message ?? '')
+      if (staleShellReloadOnce({ offline: '1' })) return
+      this.onOutput(`*${JSON.stringify({
+        msg: 'exit_reason',
+        type: 'error',
+        message: 'The offline engine failed to load. Close the app completely and reopen it, then try again — your save is intact.',
+      })}\n`)
+      this.onExit(1)
+    }
     this.worker.onmessage = (e: MessageEvent<WorkerOutMsg>) => {
+      this.gotMessage = true
       const m = e.data
       if (m.type === 'lines') {
         this.meter?.chunk()

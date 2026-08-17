@@ -10,6 +10,7 @@ import { attemptResume, clearGameStart, loadPersistedResume, markProactiveClose 
 import { count } from './counter'
 import { getPref } from './prefs'
 import { loadSession } from './auth/session'
+import { staleShellReloadOnce } from './util/self-heal'
 
 type AppState = 'login' | 'lobby' | 'game'
 
@@ -113,6 +114,12 @@ async function showOfflineGame(name: string): Promise<void> {
   try {
     bootMod = await import('./offline/boot')
   } catch (e) {
+    // The one production way this import fails is a stale shell whose
+    // boot-chunk hash rotated off the deploy — heal with the offline
+    // context pinned, so the reload lands back in the offline lobby
+    // rather than falling into login/auto-resume (the engine-port worker
+    // path passes the same param for the same reason).
+    if (staleShellReloadOnce({ offline: '1' })) return
     showFatal(`Offline engine failed to load: ${String(e)}`)
     return
   }
@@ -302,9 +309,12 @@ function setView(el: HTMLElement): void {
   root.appendChild(el)
 }
 
-// Dynamic-import failure surface: a stale SW start doc serving rotated chunk
-// hashes after a deploy makes lazy chunks 404 — that must render something,
-// not leave a blank #app with a silent unhandled rejection.
+// Dynamic-import failure surface of last resort: renders text rather than
+// leaving a blank #app with a silent rejection. Deliberately does NOT
+// attempt the self-heal reload itself — the heal needs the caller's
+// context (the offline-boot catch above passes ?offline=1; a bare reload
+// here would strand an offline user on login or auto-resume an unrelated
+// online game), so call sites heal first and fall through to this.
 function showFatal(text: string): void {
   const el = document.createElement('pre')
   el.style.cssText = 'padding:16px;color:#eeeeec;white-space:pre-wrap'

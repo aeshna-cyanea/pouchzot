@@ -4,6 +4,7 @@ import { initUiScale } from './ui-scale'
 import { maybeMountSafeAreaProbe } from './safe-area-probe'
 import { registerServiceWorker } from './sw/register'
 import { count } from './counter'
+import { consumeStaleShellHeal } from './util/self-heal'
 
 const appEl = document.getElementById('app')
 if (!appEl) throw new Error('#app element not found')
@@ -14,3 +15,4 @@ initApp(appEl)
 maybeMountSafeAreaProbe()
 registerServiceWorker()
 count('boot')
+if (consumeStaleShellHeal()) count('stale-heal')

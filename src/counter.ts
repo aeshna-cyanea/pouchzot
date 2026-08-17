@@ -1,7 +1,10 @@
 // Anonymous usage events, one per type per page load, posted to the app's
 // own origin. No identifiers, no payload beyond the event name. Design
 // notes in dev-material.
-export type CountedEvent = 'boot' | 'play' | 'spectate' | 'play-offline'
+// stale-heal: this page load exists because the stale-shell rescue reloaded
+// a broken session (util/self-heal.ts consumeStaleShellHeal) — each heal
+// also implies one extra 'boot' beacon for the same user intent.
+export type CountedEvent = 'boot' | 'play' | 'spectate' | 'play-offline' | 'stale-heal'
 export interface CountFlags { ascii?: boolean }
 
 const sent = new Set<CountedEvent>()
