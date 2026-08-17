@@ -7,7 +7,8 @@ import { buildGameView, type SpectateTarget } from './views/game-view'
 import type { TileLoader } from './game/tiles/tile-loader'
 import { OFFLINE_GAME_ID } from './offline/offline-state'
 import { attemptResume, clearGameStart, loadPersistedResume, markProactiveClose } from './reconnect'
-import { count } from './counter'
+import { count, type CountFlags } from './counter'
+import { getActiveControlSet } from './game/input/control-sets'
 import { getPref } from './prefs'
 import { loadSession } from './auth/session'
 import { staleShellReloadOnce } from './util/self-heal'
@@ -130,7 +131,7 @@ async function showOfflineGame(name: string): Promise<void> {
   // same reason boot.ts excludes them from the slot-record tracker: a golden
   // capture's character isn't yours and must not mint a phantom shelf entry.
   const gameId = params.get('engine') === 'fake' ? '' : OFFLINE_GAME_ID
-  if (gameId) count('play-offline', { ascii: getPref('mapRenderMode') === 'ascii' })
+  if (gameId) count('play-offline', gameStartFlags())
   state = 'game'
   conn = boot.conn
   currentUsername = name
@@ -216,8 +217,18 @@ async function switchSpectateServer(wsUrl: string): Promise<void> {
   enterLobby(next, '', true)
 }
 
+// Session-start facts for the game-start counter rows. U reads the RESOLVED
+// set (getActiveControlSet falls back to builtin Standard on a dangling id),
+// so a deleted custom set doesn't keep counting as custom usage.
+function gameStartFlags(): CountFlags {
+  return {
+    ascii: getPref('mapRenderMode') === 'ascii',
+    userControls: !getActiveControlSet().builtin,
+  }
+}
+
 function showGame(spectating?: SpectateTarget, loader?: TileLoader, gameId?: string): void {
-  count(spectating ? 'spectate' : 'play', { ascii: getPref('mapRenderMode') === 'ascii' })
+  count(spectating ? 'spectate' : 'play', gameStartFlags())
   state = 'game'
   setView(buildGameView(
     conn!,

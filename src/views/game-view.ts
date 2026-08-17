@@ -28,6 +28,8 @@ import { renderTiles, appendIconOverlays, dollTileSpec, monsterTileSpec, prepend
 import { cachedFingerprint, primeFingerprint } from '../game/tiles/atlas-dedup'
 import { ensureDollBaked, isBakeableLoader } from '../game/tiles/avatar-bake'
 import { recordAvatarOutcome, saveAvatar, type AvatarMeta } from '../avatars'
+import { count, countEach } from '../counter'
+import { parseRunePickup, parseWinRuneCount } from '../game/rune-messages'
 import { looksLikeWelcome, welcomeBackground } from '../game/char-label'
 import { getPref, setPref, MONSTER_LIST_MODE_CHANGED_EVENT, RENDER_MODE_CHANGED_EVENT } from '../prefs'
 import {
@@ -306,6 +308,38 @@ export function buildGameView(
   // (offline that gap is the engine's final IDBFS persist, several frames).
   // Never reset: exitToLobby discards the whole view.
   let gameOverSeen = false
+  // Wizard/explore latch for the anonymous outcome counters (src/counter.ts):
+  // both modes can fabricate outcomes (wizmode conjures runes/the Orb, explore
+  // removes death), so latching either excludes this session's won/dead/rune
+  // rows — crawl's own scoring line (hiscores.cc suppresses DGL milestones for
+  // both, but still sends them to webtiles, hence our own gate). Sticky by
+  // construction: crawl persists you.wizard in the save and re-reports it in
+  // the first `player` message of a resumed session, so a per-view latch
+  // can't be dodged by a reload. Merely non-scoring-but-honest play (seeded
+  // games) deliberately does NOT latch.
+  let cheatSeen = false
+  // Runes already counted this view, by name. The pickup line reaches a live
+  // client at most once (rollback touches only temporary messages; neither
+  // reconnect nor the attach handshake replays history — message.cc
+  // buffer.send sends `unsent` only), so this Set is insurance against wire
+  // paths not traced, not a known dup. Names are unique per game, so it can
+  // never suppress a legitimate second rune.
+  const runesCounted = new Set<string>()
+  // Creation flow seen this view (armed by the newgame-choice ui-push,
+  // consumed by the first `map` message → one 'newchar' count). Spectators
+  // can receive a watched player's creation screens via the attach handshake's
+  // menu-stack replay, hence the gate at the count site.
+  let sawNewgameChoice = false
+
+  // Unlatched rune counter (countEach: one row per rune — totals, never
+  // people-counts). Same own-real-honest-game gate as the outcome counters.
+  function maybeCountRune(text: string): void {
+    if (spectating || !gameId || cheatSeen) return
+    const rune = parseRunePickup(text)
+    if (!rune || runesCounted.has(rune)) return
+    runesCounted.add(rune)
+    countEach(gameId === 'offline' ? 'rune-offline' : 'rune')
+  }
   // True while a server `show_dialog` HTML overlay is up (e.g. trunk's
   // save-transfer prompt on resume). Tracked like crtActive so it can't be
   // orphaned if the server proceeds without an explicit hide_dialog.
@@ -1365,6 +1399,11 @@ export function buildGameView(
         // version creation guard's "nothing rendered" case can't apply.
         mapSeen = true
         disarmCreationGuard()
+        // A map message after the creation grid = the character exists.
+        if (sawNewgameChoice) {
+          sawNewgameChoice = false
+          if (!spectating && gameId) count('newchar')
+        }
         if (msg.clear) store.clear()
         // vgrdc is the server's complete view-centering signal (present on a
         // map message whenever it matters — roughly half of them in
@@ -1390,6 +1429,7 @@ export function buildGameView(
       }
 
       case 'player': {
+        if (msg.wizard || msg.explore) cheatSeen = true
         if (msg.name) charName = msg.name
         if (msg.turn !== undefined) lastTurn = msg.turn // for the avatar shelf; see lastTurn decl
         // Merge the avatar-shelf identity/progress snapshot; see charMeta decl.
@@ -1845,6 +1885,7 @@ export function buildGameView(
           // assigned to…" / "Your memory of … unravels") and flags the rail
           // stale; reharvestIfDirty after this loop resolves it.
           if (harvester.onMsgLine(m.text)) continue
+          maybeCountRune(m.text)
           // Hold the game-start welcome line for the background parse (see
           // welcomeLine decl); resolves now if name+species already arrived.
           if (!welcomeSettled && looksLikeWelcome(m.text)) {
@@ -1976,6 +2017,18 @@ export function buildGameView(
             { reason: msg.reason, message: msg.message, dump: msg.dump },
             charMeta,
           )
+          // Anonymous outcome counters, same own-real-game gate as the crypt
+          // write above (fixture replays keep gameId ''), plus the wizard/
+          // explore latch — see cheatSeen. Win rows carry the rune count
+          // parsed from the end blurb (absent on parse miss, never 0).
+          if (!cheatSeen && (msg.reason === 'won' || msg.reason === 'dead')) {
+            const offline = gameId === 'offline' ? '-offline' as const : ''
+            if (msg.reason === 'won') {
+              count(`won${offline}`, {}, parseWinRuneCount(msg.message))
+            } else {
+              count(`dead${offline}`)
+            }
+          }
         }
         // Forward exit details so the lobby renders the exit dialog after the
         // layer switch. The trailing go_lobby + lobby list (often batched with
@@ -2084,6 +2137,11 @@ export function buildGameView(
     // Standalone screens (game-overlays.ts) own their ui-push type wholesale;
     // everything after this block shares the title/body/actions frame below.
     if (msg.type === 'newgame-choice') {
+      // Arms the newchar counter; the count waits for the first `map` (world
+      // exists = creation completed), so an aborted creation never counts.
+      // Re-arming on a resumed mid-creation flow is correct — it still ends
+      // in a new character.
+      sawNewgameChoice = true
       showNewgameChoice(overlayCtx, msg)
       // The creation grid hides the touch controls; played games get the
       // menu-controls bar (Esc) in their place. Spectators get neither.

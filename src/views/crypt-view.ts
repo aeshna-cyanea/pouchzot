@@ -5,6 +5,7 @@ import { avatarToCard, cardHeadline, renderCharCard } from './char-card'
 import { pickCryptLine } from './crypt-flavor'
 import { mountBackdrop, mountOverlay } from './overlay'
 import { attachScrollCue } from '../util/scroll-cue'
+import { count } from '../counter'
 
 // Full-screen "crypt": the complete retained character history (../avatars),
 // painted as a vertical-scrolling 4-wide grid of doll sprites. An opaque full
@@ -18,6 +19,7 @@ import { attachScrollCue } from '../util/scroll-cue'
 // smaller flavor style (it's prose, not a wordmark).
 export function openCrypt(): void {
   if (document.querySelector('.crypt-view')) return // already open — ignore re-taps
+  count('crypt')
   const { view } = mountCryptShell('', '', `
       <p class="crypt-flavor"></p>
       <div class="crypt-grid"></div>
