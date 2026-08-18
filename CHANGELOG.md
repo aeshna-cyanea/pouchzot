@@ -11,6 +11,8 @@ Notable changes to PocketZot, newest first.
 
 ## 2026-08-17
 
+- Offline morgue files can now be downloaded: tap ↓ in a past game's
+  morgue view.
 - Offline games now use less memory and release it sooner after game
   exit.
 - The app now recovers on its own when iPhone relaunches it into an

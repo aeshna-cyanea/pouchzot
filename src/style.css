@@ -272,8 +272,10 @@ html, body {
   display: flex;
   flex-direction: column;
 }
-/* .crypt-header shares its base (padding + 36px centered row) with .lobby-header
-   via the grouped rule in the Lobby section. Only the bar pins; the flavor
+/* .crypt-header shares its base (padding + centered row) with .lobby-header
+   via the grouped rule in the Lobby section — where the declared min-height is
+   nominal, border-box making the padding eat it, so header height follows its
+   content (why .records-morgue-confirm pins its own). Only the bar pins; the flavor
    heading scrolls with the grid inside .crypt-scroll. */
 .crypt-scroll {
   flex: 1 1 auto;
@@ -1012,7 +1014,9 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 /* ── Offline lobby (views/offline-lobby.ts) ──────────────────
    Shares the online lobby's shell (header/list/rows); these are the
    offline-only pieces: name form, the slot row's doll and milestone line,
-   readiness strip, storage rows. */
+   readiness strip, storage rows. Slot rows carry no delete affordance — a
+   saved character goes away by quitting it in-game, so the row stays
+   tap-to-resume like the online lobby's, arrow cue and all. */
 
 .offline-name-form {
   display: flex;
@@ -1068,27 +1072,6 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* The offline surfaces' delete affordance: a bare ✕ at a row's right edge
-   (records-view's morgue cards). Slot rows have none — a saved character goes
-   away by quitting it in-game, so its row is tap-to-resume like the online
-   lobby's, arrow cue and all. */
-.offline-slot-delete {
-  flex: 0 0 auto;
-  min-width: 36px;
-  min-height: 36px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--text-dim);
-  font-size: 0.9rem;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-@media (hover: hover) {
-  .offline-slot-delete:hover { border-color: var(--border); color: var(--danger); }
-}
-.offline-slot-delete:active { background: var(--surface2); }
 
 /* The confirm pair (delete-countdown.ts) never wraps. The Delete button counts
    down taps ("Delete in 3" → 2 → 1) — fixed-width text in the mono font, so it
@@ -4987,15 +4970,49 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.records-morgue-del { margin-left: 0.5rem; }
-/* Delete confirm swapped into the header's right side (title+✕ removed);
-   reuses the shared confirm-button styles. */
+/* The header's two icon buttons: 36px transparent squares, chrome shared by
+   the grouped selector the way .offline-slot-confirm-* share theirs. Both stay
+   text-dim — red on a resting header shouts at someone who came to read a
+   morgue; the danger colour belongs to the confirm's Delete, at the moment of
+   consequence (.offline-slot-confirm-del). */
+.records-morgue-dl,
+.records-morgue-del {
+  flex: 0 0 auto;
+  min-width: 36px;
+  min-height: 36px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) {
+  .records-morgue-dl:hover,
+  .records-morgue-del:hover { border-color: var(--border); }
+}
+.records-morgue-dl:active,
+.records-morgue-del:active { background: var(--surface2); }
+/* Only ↓ ever disables (a record whose morgue file was never written), and it
+   sits beside a live ⌧ — without this it reads as tappable and does nothing. */
+.records-morgue-dl:disabled { opacity: 0.5; cursor: default; }
+/* The pair sits at the header's right edge and reads as one group: the boxes
+   abut (their 36px tap areas already hold the glyphs ~22px apart), with the
+   gap that separates them from the title larger than the gap between them. */
+.records-morgue-dl { margin-left: 1.25rem; }
+/* Delete confirm swapped into the header's right side (openMorgue owns the
+   swap); reuses the shared confirm-button styles. */
 .records-morgue-confirm {
   margin-left: auto;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   min-width: 0;
+  /* Match the 36px ⌧/↓ buttons this row replaces — the confirm pair is
+     shorter, and without this the pinned header shrinks and the page
+     shifts up for the swap's duration. */
+  min-height: 36px;
 }
 /* Normal reading size (same as the % / inventory overlays); the 80-col dump
    overflows sideways and .crypt-scroll pans both axes (overflow-y:auto forces
