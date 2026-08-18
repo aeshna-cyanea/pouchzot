@@ -77,10 +77,11 @@ describe('counter', () => {
 
   it('countEach never latches — one row per occurrence', async () => {
     const { countEach } = await freshCounterModule()
-    countEach('rune')
-    countEach('rune')
-    countEach('rune-offline')
-    expect(sends).toEqual(['/api/e?e=rune', '/api/e?e=rune', '/api/e?e=rune-offline'])
+    countEach('rune-each')
+    countEach('rune-each')
+    countEach('rune-each-offline')
+    expect(sends).toEqual(['/api/e?e=rune-each', '/api/e?e=rune-each',
+      '/api/e?e=rune-each-offline'])
   })
 
   it('boot self-attaches the environment letters inside the guard', async () => {

@@ -343,7 +343,7 @@ export function buildGameView(
     const rune = parseRunePickup(text)
     if (!rune || runesCounted.has(rune)) return
     runesCounted.add(rune)
-    countEach(gameId === 'offline' ? 'rune-offline' : 'rune')
+    countEach(gameId === 'offline' ? 'rune-each-offline' : 'rune-each')
   }
   // True while a server `show_dialog` HTML overlay is up (e.g. trunk's
   // save-transfer prompt on resume). Tracked like crtActive so it can't be

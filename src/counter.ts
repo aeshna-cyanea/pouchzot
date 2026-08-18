@@ -10,9 +10,10 @@ export type CountedEvent = 'boot' | 'play' | 'spectate' | 'play-offline' | 'stal
   | 'won' | 'won-offline' | 'dead' | 'dead-offline'
   | 'newchar' | 'crypt'
 // Unlatched events (countEach): one row per occurrence, so their rows are
-// event totals, never people-counts — keep the two families' names disjoint
-// so an event can't carry both semantics.
-export type RepeatedEvent = 'rune' | 'rune-offline'
+// event totals, never people-counts. Convention: unlatched names end in
+// '-each' ('-offline' stays last), bare names are always latched — the
+// suffix, not vocabulary, carries the semantics.
+export type RepeatedEvent = 'rune-each' | 'rune-each-offline'
 export interface CountFlags {
   ascii?: boolean          // A: ascii render mode at session start
   standalone?: boolean     // W: display-mode standalone (installed-PWA launch)
