@@ -132,10 +132,12 @@ describe('stale-shell rescue script', () => {
     sessionStorage?: object
     location?: object
     postMessage?: (m: unknown) => void
+    navigator?: object
+    self?: object
   }) => new Function(
-    'document', 'sessionStorage', 'location', 'postMessage',
+    'document', 'sessionStorage', 'location', 'postMessage', 'navigator', 'self',
     STALE_CHUNK_RESCUE_JS as string,
-  )(ctx.document, ctx.sessionStorage, ctx.location, ctx.postMessage)
+  )(ctx.document, ctx.sessionStorage, ctx.location, ctx.postMessage, ctx.navigator, ctx.self)
 
   const mapStorage = () => {
     const m = new Map<string, string>()
@@ -159,38 +161,67 @@ describe('stale-shell rescue script', () => {
     expect(posted[2].code).toBe(1)
   })
 
+  const beaconRecorder = () => {
+    const urls: string[] = []
+    return { urls, navigator: { sendBeacon: (u: string) => { urls.push(u); return true } } }
+  }
+
   it('window context: one latched reload, sharing the in-page self-heal key', () => {
     const storage = mapStorage()
     let reloads = 0
     const location = { reload: () => { reloads++ } }
-    runRescue({ document: {}, sessionStorage: storage, location })
+    const beacons = beaconRecorder()
+    const self = {}
+    runRescue({ document: {}, sessionStorage: storage, location, ...beacons, self })
     expect(reloads).toBe(1)
     expect(storage.getItem('pocketzot:stale-shell-reloaded')).toBe('1')
+    expect(beacons.urls).toEqual([]) // heal path: the recovered page counts, not us
     // Latched: never a second reload — and the load must FAIL loudly (a
     // silently-successful empty module resolved import('./offline/boot')
     // with no exports and died as an unhandled TypeError).
-    expect(() => runRescue({ document: {}, sessionStorage: storage, location }))
+    expect(() => runRescue({ document: {}, sessionStorage: storage, location, ...beacons, self }))
       .toThrow(/out of date/)
     expect(reloads).toBe(1)
+    expect(beacons.urls).toEqual(['/api/e?e=stale-heal-failed'])
+    // Once per document: a third dead chunk in the same page doesn't recount.
+    expect(() => runRescue({ document: {}, sessionStorage: storage, location, ...beacons, self }))
+      .toThrow(/out of date/)
+    expect(beacons.urls.length).toBe(1)
   })
 
   it('window context: a reported latch ("2") also declines and throws', () => {
     const storage = mapStorage()
     storage.setItem('pocketzot:stale-shell-reloaded', '2')
     let reloads = 0
-    expect(() => runRescue({ document: {}, sessionStorage: storage, location: { reload: () => { reloads++ } } }))
-      .toThrow(/out of date/)
+    const beacons = beaconRecorder()
+    expect(() => runRescue({
+      document: {}, sessionStorage: storage,
+      location: { reload: () => { reloads++ } }, ...beacons, self: {},
+    })).toThrow(/out of date/)
     expect(reloads).toBe(0)
+    expect(beacons.urls).toEqual(['/api/e?e=stale-heal-failed'])
   })
 
   it('window context: no storage means no loop guard — no reload, loud failure', () => {
     let reloads = 0
+    const beacons = beaconRecorder()
     expect(() => runRescue({
       document: {},
       sessionStorage: { getItem: () => { throw new Error('denied') } },
       location: { reload: () => { reloads++ } },
+      ...beacons, self: {},
     })).toThrow(/out of date/)
     expect(reloads).toBe(0)
+    expect(beacons.urls).toEqual(['/api/e?e=stale-heal-failed'])
+  })
+
+  it('window context: a broken beacon still fails loudly, never silently succeeds', () => {
+    const storage = mapStorage()
+    storage.setItem('pocketzot:stale-shell-reloaded', '2')
+    expect(() => runRescue({
+      document: {}, sessionStorage: storage, location: {},
+      navigator: { sendBeacon: () => { throw new Error('blocked') } }, self: {},
+    })).toThrow(/out of date/)
   })
 })
 

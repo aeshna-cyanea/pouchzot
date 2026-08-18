@@ -98,6 +98,19 @@ export const STALE_CHUNK_RESCUE_JS = `(() => {
     latched = true
   }
   if (latched) {
+    // Dead end: the one automatic reload is spent (or storage is unwritable,
+    // so none was ever attempted) — the user is stuck until a force-quit.
+    // Report it before failing: this script is the only current code that
+    // ever runs in a stale shell, so this beacon is the only way the outcome
+    // is counted (functions/api/e.js 'stale-heal-failed'). Once per document
+    // via the self guard; offline dead-ends go unreported (the beacon can't
+    // leave the device).
+    try {
+      if (!self.__pzStaleHealFailed) {
+        self.__pzStaleHealFailed = 1
+        navigator.sendBeacon('/api/e?e=stale-heal-failed')
+      }
+    } catch (_e) { /* counting must never block the visible failure */ }
     throw new Error('This copy of the app is out of date and could not update itself. Close the app completely and reopen it.')
   }
   location.reload()
