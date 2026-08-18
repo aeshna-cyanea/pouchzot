@@ -29,6 +29,7 @@ import { cachedFingerprint, primeFingerprint } from '../game/tiles/atlas-dedup'
 import { ensureDollBaked, isBakeableLoader } from '../game/tiles/avatar-bake'
 import { recordAvatarOutcome, saveAvatar, type AvatarMeta } from '../avatars'
 import { count, countEach } from '../counter'
+import { downloadPackFile } from '../offline/save-transfer'
 import { parseRunePickup, parseWinRuneCount } from '../game/rune-messages'
 import { looksLikeWelcome, welcomeBackground } from '../game/char-label'
 import { getPref, setPref, MONSTER_LIST_MODE_CHANGED_EVENT, RENDER_MODE_CHANGED_EVENT } from '../prefs'
@@ -131,6 +132,10 @@ export function buildGameView(
   username = '',
   gameId = '',
   guest = false,
+  // Offline only (app.ts passes boot.readMorgue): reads a '#' dump out of
+  // the engine's live FS by its wire stem. Presence of this callback is
+  // also the gate for decorating the dump log line with a download button.
+  readMorgue?: (filename: string) => Promise<Uint8Array<ArrayBuffer> | null>,
 ): HTMLElement {
   const store = new MapStore()
   if (import.meta.env.DEV) (window as unknown as { __dcssStore: MapStore }).__dcssStore = store
@@ -452,6 +457,9 @@ export function buildGameView(
   spellRail.id = 'spell-rail'
   spellRail.style.display = 'none'
   let activePromptEl: HTMLElement | null = null
+  // Armed by {msg:'dump'} (offline '#'); the msgs loop spends it on the
+  // engine's "Char dumped to …" line, which renders with a download button.
+  let pendingDumpFile: string | null = null
   let inXMode = false
   let exitedXModeForInput = false
   // Menu filter input (Ctrl-F → "Search for what? (regex)"). Server sends a
@@ -1860,6 +1868,16 @@ export function buildGameView(
         break
       }
 
+      case 'dump': {
+        // Mid-game '#' dump announcement. Offline the mini-server sends the
+        // stem; the engine's own "Char dumped to '<path>'." line follows in
+        // the same flush (verified: the starred dump precedes the msgs
+        // flush), so arm it for the msgs loop to decorate. Online servers
+        // send `url` instead — not surfaced yet (upstream shows it in chat).
+        if (msg.filename && readMorgue) pendingDumpFile = msg.filename
+        break
+      }
+
       case 'msgs': {
         // The inline --more-- row must not be in the DOM while the batch
         // merges: rollback pops firstChild N times and pushMsgRow prepends,
@@ -1900,7 +1918,15 @@ export function buildGameView(
           // keep rollback counts consistent, so skip the (invisible) prompt
           // row + its buttons/listeners and append a plain line instead.
           if (inXMode) xdescAdd(m.text, m.channel)
-          if (!inXMode && m.channel === 2 && PROMPT_TRIGGER_RE.test(m.text)) {
+          // "dumped to" as well as the stem: the stem is the character's
+          // NAME, which many unrelated lines contain (welcome line, prompts
+          // naming the player) — and this branch outranks the prompt one.
+          if (!inXMode && pendingDumpFile !== null
+              && m.text.includes('dumped to') && m.text.includes(pendingDumpFile)) {
+            const row = makeDumpRow(m.text, pendingDumpFile)
+            pendingDumpFile = null
+            pushMsgRow(row)
+          } else if (!inXMode && m.channel === 2 && PROMPT_TRIGGER_RE.test(m.text)) {
             disableActivePrompt()
             const row = makePromptRow(m.text)
             activePromptEl = row
@@ -1909,6 +1935,12 @@ export function buildGameView(
             appendMessage(m.text, true)
           }
         }
+        // The dump line lands in the FIRST msgs flush after {msg:'dump'}
+        // (verified: the starred dump precedes the flush in the same engine
+        // chunk, dispatched in order) — an arm that survived this batch has
+        // missed its line, so expire it rather than let a later line
+        // containing the character's name mis-decorate.
+        pendingDumpFile = null
         if (msg.more) showMore(msg.more_text)
         else if (msg.more === false) hideMore()
         else if (moreActive) syncMoreDisplay()  // reattach as the bottom row
@@ -3934,6 +3966,38 @@ export function buildGameView(
         appendActionBtn(row, seg.label, seg.key)
       }
     }
+    return row
+  }
+
+  // The '#' dump log line ("Char dumped to '<path>'." — chardump.cc:1932),
+  // kept verbatim and made tappable as a whole line: underlined once the
+  // dump's bytes are in hand, tap downloads them. Pre-read, then arm — the
+  // download must be synchronous inside its user activation, since an
+  // a.click() reached through a promise chain gets blocked on iOS whenever
+  // the readFile reply waits on a busy engine (records-view's ↓ pre-reads
+  // for the same reason). Deliberately no auto-download: on-device
+  // (2026-08-17) a share sheet opening under the still-down '#' finger
+  // swallowed the touchend and runaway key repeat queued sheets until the
+  // page died — the sheet may only ever follow a deliberate tap.
+  function makeDumpRow(text: string, stem: string): HTMLElement {
+    const row = document.createElement('p')
+    row.className = 'game-msg'
+    const mark = document.createElement('span')
+    mark.className = 'msg-turn-mark'
+    mark.textContent = ' '
+    row.appendChild(mark)
+    const content = document.createElement('span')
+    content.innerHTML = dcssToHtml(text)
+    row.appendChild(content)
+    void readMorgue?.(stem).then((data) => {
+      if (!data) return // engine gone or file unreadable — stays a plain line
+      row.classList.add('msg-dump-link')
+      row.addEventListener('click', (e) => {
+        e.stopPropagation() // not also a log tap (--more-- advance)
+        downloadPackFile(new File([data], `${stem}.txt`, { type: 'text/plain' }))
+        focusView()
+      })
+    })
     return row
   }
 

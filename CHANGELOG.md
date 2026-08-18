@@ -11,10 +11,14 @@ Notable changes to PocketZot, newest first.
 
 ## 2026-08-17
 
-- Offline morgue files can now be downloaded: tap ↓ in a past game's
-  morgue view.
 - Offline games now use less memory and release it sooner after game
   exit.
+- Offline morgue files can now be downloaded: tap ↓ in a past game's
+  morgue view.
+- Character dumps (`#`) can now be downloaded in offline games: tap the
+  "Char dumped" message in the log.
+- Fixed held touch controls continuing to auto-repeat when the app loses
+  focus mid-press (for example to a system sheet or an app switch).
 - The app now recovers on its own when iPhone relaunches it into an
   outdated cached version. Previously this could lead to a black screen
   when starting an offline game, until the app was restarted.

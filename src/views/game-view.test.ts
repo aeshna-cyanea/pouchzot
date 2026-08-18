@@ -48,6 +48,25 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
+// Offline variant: wires the readMorgue seam the way app.ts does from
+// boot.readMorgue (positional tail of buildGameView).
+function setupOffline(readMorgue: (f: string) => Promise<Uint8Array<ArrayBuffer> | null>): Harness {
+  const send = vi.fn()
+  const conn = {
+    wsUrl: 'local://offline',
+    httpBase: '',
+    onMessage: (() => {}) as (msg: ServerMsg) => void,
+    onClose: () => {},
+    onOpen: () => {},
+    send,
+    close: vi.fn(),
+  } as unknown as WsConnection
+  const onLobby = vi.fn()
+  const view = buildGameView(conn, onLobby, undefined, undefined, 'Dumptest', 'offline', false, readMorgue)
+  document.body.appendChild(view)
+  return { view, send, onLobby, dispatch: (msg) => conn.onMessage(msg as ServerMsg) }
+}
+
 // --- small DOM helpers, scoped to the view under test ---
 const hud = (h: Harness) => h.view.querySelector<HTMLElement>('#game-hud')!
 const msgLog = (h: Harness) => h.view.querySelector<HTMLElement>('#game-messages')!
@@ -86,6 +105,75 @@ describe('message log (msgs)', () => {
     expect(btn).toBeTruthy()
     btn!.click()
     expect(sent(h)).toContainEqual({ msg: 'input', text: 'S' })
+  })
+
+  // The offline '#' dump line: {msg:'dump'} (mini-server synthesis) arms the
+  // stem, and the engine's "Char dumped to '<path>'." line renders verbatim
+  // as a whole-line tap target. The row PRE-READS through the readMorgue
+  // seam and only becomes tappable (msg-dump-link) once the bytes land, so
+  // the tap's download stays synchronous inside its user activation.
+  it('renders the dump line verbatim and arms it after the pre-read', async () => {
+    const reads: string[] = []
+    const readMorgue = (f: string): Promise<Uint8Array<ArrayBuffer> | null> => {
+      reads.push(f)
+      return Promise.resolve(new Uint8Array(new ArrayBuffer(4)))
+    }
+    const h = setupOffline(readMorgue)
+    h.dispatch({ msg: 'dump', filename: 'Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: "<lightgrey>Char dumped to '/crawl/morgue/Dumptest.txt'." }] })
+    const row = msgRows(h)[0]
+    expect(row.textContent).toContain("Char dumped to '/crawl/morgue/Dumptest.txt'.")
+    // Pre-read happens at row creation, not on tap.
+    expect(reads).toEqual(['Dumptest'])
+    expect(row.classList.contains('msg-dump-link')).toBe(false)
+    await Promise.resolve()
+    expect(row.classList.contains('msg-dump-link')).toBe(true)
+  })
+
+  it('leaves the dump line a plain row when the pre-read fails', async () => {
+    const h = setupOffline(() => Promise.resolve(null))
+    h.dispatch({ msg: 'dump', filename: 'Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: "<lightgrey>Char dumped to '/crawl/morgue/Dumptest.txt'." }] })
+    await Promise.resolve()
+    expect(msgLog(h).querySelector('.msg-dump-link')).toBeNull()
+  })
+
+  it('expires an unspent arm at the end of the msgs batch', async () => {
+    const h = setupOffline(() => Promise.resolve(new Uint8Array(new ArrayBuffer(4))))
+    h.dispatch({ msg: 'dump', filename: 'Dumptest' })
+    // A batch WITHOUT the dump line spends nothing but expires the arm...
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Welcome back, Dumptest the Chopper.' }] })
+    // ...so a later batch can't mis-decorate a line naming the character.
+    h.dispatch({ msg: 'msgs', messages: [{ text: "Char dumped to '/crawl/morgue/Dumptest.txt'." }] })
+    await Promise.resolve()
+    expect(msgLog(h).querySelector('.msg-dump-link')).toBeNull()
+  })
+
+  it('never decorates a mere name mention, even while armed', async () => {
+    const h = setupOffline(() => Promise.resolve(new Uint8Array(new ArrayBuffer(4))))
+    h.dispatch({ msg: 'dump', filename: 'Dumptest' })
+    h.dispatch({
+      msg: 'msgs',
+      messages: [
+        { text: 'Increase (S)trength, Dumptest?', channel: 2 },
+        { text: "Char dumped to '/crawl/morgue/Dumptest.txt'." },
+      ],
+    })
+    await Promise.resolve()
+    // The channel-2 prompt kept its prompt treatment; only the dump line
+    // became the tap target.
+    expect(msgLog(h).querySelector('.game-prompt')).toBeTruthy()
+    expect(msgRows(h)[0].classList.contains('msg-dump-link')).toBe(true)
+    expect(msgLog(h).querySelectorAll('.msg-dump-link').length).toBe(1)
+  })
+
+  it('renders the dump line plain when no readMorgue seam exists (online)', async () => {
+    const h = setup()
+    h.dispatch({ msg: 'dump', filename: 'Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: "<lightgrey>Char dumped to '/crawl/morgue/Dumptest.txt'." }] })
+    await Promise.resolve()
+    expect(msgLog(h).querySelector('.msg-dump-link')).toBeNull()
+    expect(msgRows(h)[0].textContent).toContain("'/crawl/morgue/Dumptest.txt'")
   })
 
   it('inlines --more-- as the log-bottom row on more:true and a log tap sends Space', () => {

@@ -34,7 +34,8 @@ interface CrawlModule {
 }
 
 interface CrawlFS {
-  readFile(path: string): Uint8Array
+  // FS.readFile allocates a fresh exact-size array — never a heap view.
+  readFile(path: string): Uint8Array<ArrayBuffer>
   writeFile(path: string, data: Uint8Array | string): void
   mkdir(path: string): void
   syncfs(populate: boolean, cb: (err: unknown) => void): void
@@ -116,6 +117,11 @@ self.addEventListener('unhandledrejection', (e) => {
 })
 
 let module_: CrawlModule | null = null
+// The engine's FS, captured off the pocketzotSeedCaches hook (pre.js calls it
+// with FS after IDBFS hydration, before main) — the only place the glue hands
+// it out. Serves readFile requests against the LIVE mount, where mid-game
+// writes ('#' dumps) sit until the next checkpoint's syncfs.
+let fs_: CrawlFS | null = null
 // Inputs arriving while the wasm module is still instantiating.
 const pending: WorkerInMsg[] = []
 
@@ -161,6 +167,21 @@ function feed(m: WorkerInMsg): void {
   }
   if (!module_) {
     pending.push(m)
+    return
+  }
+  if (m.type === 'readFile') {
+    // Morgue-dir only: this seam exists for dump downloads, nothing wider.
+    // Literal mirrors game-records.ts MORGUE_DIR — not imported: pulling a
+    // main-bundle module in here just for the string would drag its IDB
+    // helpers into the worker bundle.
+    // No buffer transfer — FS.readFile's result could alias engine memory,
+    // and transferring would detach it; the structured-clone copy is cheap
+    // at dump sizes.
+    let data: Uint8Array<ArrayBuffer> | null = null
+    if (m.path.startsWith('/crawl/morgue/')) {
+      try { data = fs_?.readFile(m.path) ?? null } catch { /* missing */ }
+    }
+    post({ type: 'file', id: m.id, data })
     return
   }
   if (m.type === 'control') module_.pocketzot.pushControl(m.json)
@@ -462,7 +483,7 @@ async function start(name: string): Promise<void> {
       onExit: (code) => { flushOut(); postExit(code) },
       print: (text) => post({ type: 'log', text }),
       printErr: (text) => post({ type: 'log', text }),
-      pocketzotSeedCaches: (fs) => seedCaches(fs, cache),
+      pocketzotSeedCaches: (fs) => { fs_ = fs; return seedCaches(fs, cache) },
       instantiateWasm: (info, receiveInstance) => {
         const res = wasmRes
         wasmRes = null

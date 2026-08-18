@@ -147,9 +147,19 @@ export function createMiniServer(
       case 'checkpoint':
         hooks.checkpoint?.()
         break
+      case 'dump':
+        // Upstream parity: the Python server turns a type-"command" ('#')
+        // starred dump into a client {msg:"dump", url} broadcast
+        // (process_handler.py:1180). Offline there's no URL — forward the
+        // filename (pre-munged by strip_filename_unsafe_chars, tileweb.cc;
+        // the file is /crawl/morgue/<filename>.txt, already written when
+        // this line arrives). "morgue"/"save" types mark end-of-game files
+        // (end.cc / files.cc) the records view already owns — not routed.
+        if (msg['type'] === 'command' && typeof msg['filename'] === 'string' && !ended)
+          deliver({ msg: 'dump', filename: msg['filename'] })
+        break
       case 'client_path':   // engine version handshake — nothing to route offline
       case 'flush_messages': // we don't queue, so every message is already flushed
-      case 'dump':           // morgue file lives in the engine FS; no URL to build
         break
       default:
         console.warn('offline: unknown starred engine message', msg['msg'])

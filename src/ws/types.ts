@@ -140,6 +140,12 @@ export type ServerMsg =
   // The client must answer with {msg:'force_terminate', answer:boolean};
   // true = SIGABRT the old process (skips saving), false = abort the play.
   | { msg: 'force_terminate?' }
+  // Mid-game '#' character dump. Online servers send `url` (morgue URL sans
+  // extension — process_handler.py builds it from the game's starred dump
+  // line; upstream chat.js shows url+".txt" in chat). Offline the mini-server
+  // synthesizes the same message with `filename` (the dump's stem) instead —
+  // there is no URL, the file lives in the engine's FS.
+  | { msg: 'dump'; url?: string; filename?: string }
   | { msg: 'game_ended'; reason: string; message?: string; dump?: string }
   | { msg: 'go_lobby' }
   | { msg: 'lobby_entry' } & LobbyEntry

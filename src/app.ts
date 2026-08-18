@@ -157,6 +157,7 @@ async function showOfflineGame(name: string): Promise<void> {
     currentUsername,
     gameId,
     currentIsGuest,
+    (filename) => boot.readMorgue(filename),
   ))
   boot.start()
 }
