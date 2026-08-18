@@ -460,6 +460,15 @@ export function buildGameView(
   // Armed by {msg:'dump'} (offline '#'); the msgs loop spends it on the
   // engine's "Char dumped to …" line, which renders with a download button.
   let pendingDumpFile: string | null = null
+  // Online twin: {msg:'dump', url} (process_handler.py:1180 broadcasts to
+  // player AND spectators, morgue_url servers only). Spent on the
+  // DGAMELAUNCH form of the log line (chardump.cc:1930 — no path online),
+  // which then opens the morgue URL. Unlike pendingDumpFile this survives
+  // msgs batches: the broadcast rides the control socket while the line
+  // rides the message flush, so their order isn't guaranteed — the dump
+  // case also decorates retroactively when the line arrived first.
+  const DUMP_OK_LINE = 'Char dumped successfully'
+  let pendingDumpUrl: string | null = null
   let inXMode = false
   let exitedXModeForInput = false
   // Menu filter input (Ctrl-F → "Search for what? (regex)"). Server sends a
@@ -1873,8 +1882,26 @@ export function buildGameView(
         // stem; the engine's own "Char dumped to '<path>'." line follows in
         // the same flush (verified: the starred dump precedes the msgs
         // flush), so arm it for the msgs loop to decorate. Online servers
-        // send `url` instead — not surfaced yet (upstream shows it in chat).
+        // send `url` (morgue URL sans extension, same convention as
+        // game_ended.dump): decorate the log line the same way, but
+        // order-tolerantly — if the line already landed as the newest row,
+        // link it in place; else arm for a coming flush.
         if (msg.filename && readMorgue) pendingDumpFile = msg.filename
+        else if (msg.url) {
+          // Arm (superseding any stale arm), then attempt an immediate
+          // retro decorate. The retro path deliberately does NOT spend the
+          // arm: the newest row can be a STALE dump line (attach/reconnect
+          // replays message history as plain rows), with the real line
+          // still in flight. Double-decoration is harmless — the morgue
+          // URL is per-character and constant — so let the msgs loop spend
+          // the arm on the real line whenever one arrives.
+          pendingDumpUrl = msg.url + '.txt'
+          const newest = msgLog.querySelector<HTMLElement>('.game-msg')
+          if (newest && !newest.classList.contains('msg-dump-link')
+              && newest.textContent?.includes(DUMP_OK_LINE)) {
+            decorateDumpUrlRow(newest, pendingDumpUrl)
+          }
+        }
         break
       }
 
@@ -1925,6 +1952,12 @@ export function buildGameView(
               && m.text.includes('dumped to') && m.text.includes(pendingDumpFile)) {
             const row = makeDumpRow(m.text, pendingDumpFile)
             pendingDumpFile = null
+            pushMsgRow(row)
+          } else if (!inXMode && pendingDumpUrl !== null
+              && m.text.includes(DUMP_OK_LINE)) {
+            const row = makeMsgRow(m.text, true)
+            decorateDumpUrlRow(row, pendingDumpUrl)
+            pendingDumpUrl = null
             pushMsgRow(row)
           } else if (!inXMode && m.channel === 2 && PROMPT_TRIGGER_RE.test(m.text)) {
             disableActivePrompt()
@@ -3980,25 +4013,31 @@ export function buildGameView(
   // swallowed the touchend and runaway key repeat queued sheets until the
   // page died — the sheet may only ever follow a deliberate tap.
   function makeDumpRow(text: string, stem: string): HTMLElement {
-    const row = document.createElement('p')
-    row.className = 'game-msg'
-    const mark = document.createElement('span')
-    mark.className = 'msg-turn-mark'
-    mark.textContent = ' '
-    row.appendChild(mark)
-    const content = document.createElement('span')
-    content.innerHTML = dcssToHtml(text)
-    row.appendChild(content)
+    const row = makeMsgRow(text, true)
     void readMorgue?.(stem).then((data) => {
       if (!data) return // engine gone or file unreadable — stays a plain line
-      row.classList.add('msg-dump-link')
-      row.addEventListener('click', (e) => {
-        e.stopPropagation() // not also a log tap (--more-- advance)
+      armDumpTap(row, () => {
         downloadPackFile(new File([data], `${stem}.txt`, { type: 'text/plain' }))
-        focusView()
       })
     })
     return row
+  }
+
+  // Shared tap-the-whole-line arming for both dump kinds.
+  function armDumpTap(row: HTMLElement, onTap: () => void): void {
+    row.classList.add('msg-dump-link')
+    row.addEventListener('click', (e) => {
+      e.stopPropagation() // not also a log tap (--more-- advance)
+      onTap()
+      focusView()
+    })
+  }
+
+  // Online counterpart of makeDumpRow: the tap opens the server's morgue
+  // URL in a new tab. Deliberately a navigation, not a fetch — morgue files
+  // are served without CORS headers, so an in-app download can't work online.
+  function decorateDumpUrlRow(row: HTMLElement, url: string): void {
+    armDumpTap(row, () => { window.open(url, '_blank', 'noopener') })
   }
 
   function appendActionBtn(row: HTMLElement, label: string, key: string): void {
@@ -4072,7 +4111,7 @@ export function buildGameView(
     if (prune) while (msgLog.children.length > 50) msgLog.lastChild?.remove()
   }
 
-  function appendMessage(text: string, html = false): void {
+  function makeMsgRow(text: string, html = false): HTMLElement {
     const p = document.createElement('p')
     p.className = 'game-msg'
     const mark = document.createElement('span')
@@ -4083,7 +4122,11 @@ export function buildGameView(
     if (html) content.innerHTML = dcssToHtml(text)
     else content.textContent = text
     p.appendChild(content)
-    pushMsgRow(p)
+    return p
+  }
+
+  function appendMessage(text: string, html = false): void {
+    pushMsgRow(makeMsgRow(text, html))
   }
 
   return view

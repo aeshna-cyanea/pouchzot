@@ -1813,8 +1813,9 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 
 .game-msg { color: var(--text); line-height: var(--msglog-line); }
 
-/* The '#' dump line, tappable as a whole once its bytes are pre-read
-   (game-view makeDumpRow). Underline only the text span, not the
+/* The '#' dump line, tappable as a whole — offline once its bytes are
+   pre-read (game-view makeDumpRow), online linking the morgue URL
+   (decorateDumpUrlRow). Underline only the text span, not the
    turn-mark slot. */
 .game-msg.msg-dump-link { cursor: pointer; }
 .game-msg.msg-dump-link > span:not(.msg-turn-mark) {

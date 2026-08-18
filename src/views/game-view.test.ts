@@ -176,6 +176,62 @@ describe('message log (msgs)', () => {
     expect(msgRows(h)[0].textContent).toContain("'/crawl/morgue/Dumptest.txt'")
   })
 
+  // The online '#' dump: {msg:'dump', url} (process_handler.py broadcast on
+  // morgue_url servers) links the DGAMELAUNCH "Char dumped successfully."
+  // line to url + '.txt'. The broadcast rides the control socket while the
+  // line rides the message flush, so BOTH arrival orders must decorate.
+  it('links the online dump line to the morgue URL (broadcast first)', () => {
+    const h = setup()
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    h.dispatch({ msg: 'dump', url: 'https://test.example/morgue/Dumptest/Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    const row = msgRows(h)[0]
+    expect(row.classList.contains('msg-dump-link')).toBe(true)
+    row.click()
+    expect(open).toHaveBeenCalledWith(
+      'https://test.example/morgue/Dumptest/Dumptest.txt', '_blank', 'noopener')
+    open.mockRestore()
+  })
+
+  it('decorates retroactively when the line beat the broadcast', () => {
+    const h = setup()
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    h.dispatch({ msg: 'dump', url: 'https://test.example/morgue/Dumptest/Dumptest' })
+    expect(msgRows(h)[0].classList.contains('msg-dump-link')).toBe(true)
+  })
+
+  it('an online arm survives intervening batches and never marks other lines', () => {
+    const h = setup()
+    h.dispatch({ msg: 'dump', url: 'https://test.example/morgue/Dumptest/Dumptest' })
+    // Unlike the offline stem arm (name-collision risk → batch expiry), the
+    // URL arm waits out unrelated flushes for its unmistakable line.
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'You feel a bit more hopeful.' }] })
+    expect(msgLog(h).querySelector('.msg-dump-link')).toBeNull()
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    expect(msgRows(h)[0].classList.contains('msg-dump-link')).toBe(true)
+  })
+
+  it('a retro decorate does not spend the arm: a replayed stale dump line plus a fresh one both link', () => {
+    const h = setup()
+    // Attach/reconnect history replay can land an old dump line as the
+    // newest row, plain (it was never armed). The retro path links it, but
+    // the arm must survive so the real line — still in flight — links too.
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    h.dispatch({ msg: 'dump', url: 'https://test.example/morgue/Dumptest/Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    expect(msgLog(h).querySelectorAll('.msg-dump-link').length).toBe(2)
+    expect(msgRows(h)[0].classList.contains('msg-dump-link')).toBe(true)
+  })
+
+  it('a second dump links its own line, not the previous one again', () => {
+    const h = setup()
+    h.dispatch({ msg: 'dump', url: 'https://test.example/morgue/Dumptest/Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    h.dispatch({ msg: 'dump', url: 'https://test.example/morgue/Dumptest/Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    expect(msgLog(h).querySelectorAll('.msg-dump-link').length).toBe(2)
+  })
+
   it('inlines --more-- as the log-bottom row on more:true and a log tap sends Space', () => {
     const h = setup()
     expect(moreLine(h)).toBeNull()
