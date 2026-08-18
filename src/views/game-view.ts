@@ -18,6 +18,7 @@ import { isOverlayOpen, closeTopOverlay } from './overlay'
 import { handleKeydown, CK_UP, CK_DOWN, CK_PGUP, CK_PGDN, CK_HOME, CK_END } from '../game/input/keyboard'
 import { createShiftToggle } from '../game/input/shift-state'
 import { uiColor, escHtml, dcssToHtml } from '../game/dcss-colors'
+import { htmlToRuns, exportScreenPng, screenSlug, type DcssRun } from './screen-export'
 import { parsePromptText, PROMPT_TRIGGER_RE } from './prompt-parse'
 import { extractSkillHotkeys } from './skill-hotkeys'
 import { reflowSkillCrt, plainText } from './skill-reflow'
@@ -864,6 +865,29 @@ export function buildGameView(
   menuControls.id = 'menu-controls'
   menuControls.style.display = 'none'
 
+  // Share chip for exportable fixed-width screens (screen-export.ts): the `%`
+  // overview and other scroller/CRT pages. A fixed-position sibling of the
+  // overlay (not a child — enterOverlayLayout wipes uiOverlay.innerHTML on
+  // every render), visible only while an exportable screen is up, reachable
+  // regardless of how far the body has scrolled.
+  const exportBtn = document.createElement('button')
+  exportBtn.className = 'screen-export-btn'
+  exportBtn.hidden = true
+  exportBtn.setAttribute('aria-label', 'Share as image')
+  exportBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>'
+  let exportSource: { runs: () => DcssRun[][]; slug: string } | null = null
+  let exportBusy = false
+  exportBtn.addEventListener('click', () => {
+    const src = exportSource
+    if (!src || exportBusy) return
+    exportBusy = true
+    void exportScreenPng(src.runs(), src.slug).finally(() => { exportBusy = false })
+  })
+  function setExportSource(src: typeof exportSource): void {
+    exportSource = src
+    exportBtn.hidden = !src
+  }
+
   const numpadInput = document.createElement('div')
   numpadInput.id = 'numpad-input'
   numpadInput.style.display = 'none'
@@ -911,6 +935,8 @@ export function buildGameView(
     view.appendChild(touchControls.element)
     view.appendChild(menuControls)
   }
+  // Both roles: spectators share the watched player's screens too.
+  view.appendChild(exportBtn)
 
   view.setAttribute('tabindex', '0')
   requestAnimationFrame(() => focusView())
@@ -2371,6 +2397,23 @@ export function buildGameView(
         uiOverlay.appendChild(buildActionsBar(msg.actions))
       }
     })
+    // Full-page terminal screens (the `%` overview scroller, txt pages, the
+    // end screen) are exportable as a PNG at their native 80-column layout —
+    // from the wire text, not the reflowed rawBody the phone renders.
+    // renderOverlay → enterOverlayLayout just cleared the source, so
+    // non-exportable types need no else branch.
+    if (msg.type === 'formatted-scroller' || msg.type === 'txt-page' || msg.type === 'game-over') {
+      const exportText = msg.text ?? msg.body ?? msg.desc ?? ''
+      if (exportText.trim()) {
+        // Scrollers usually carry no `title` — the heading is the text's own
+        // first line (the `%` overview's "Name the Title (Species Class)…"),
+        // which makes a filename that names the character.
+        const slugSrc = title || stripDcss(exportText).split('\n').find((l) => l.trim()) || msg.type
+        // Whole body through dcssToHtml in one call (unlike the per-line
+        // display path) so open colour switches persist across newlines.
+        setExportSource({ runs: () => htmlToRuns(dcssToHtml(exportText)), slug: screenSlug(slugSrc) })
+      }
+    }
     // A ui-push layered over a shop/stash/acquirement menu (e.g. describe-item
     // after `!`) should keep the menu's bottom row.
     if (activeMenu?.tag === 'shop' || activeMenu?.tag === 'stash' || activeMenu?.tag === 'acquirement') {
@@ -2481,6 +2524,15 @@ export function buildGameView(
     const maxKey = crtLines.size > 0 ? Math.max(...crtLines.keys()) : 0
     let rows: string[] = []
     for (let i = 0; i <= maxKey; i++) rows.push(crtLines.get(i) ?? '')
+    // Exportable as a PNG at the server's own terminal width — from the raw
+    // rows, before the phone reflow below: desktop-format sharing is the
+    // exporter's whole point. Rows join on \n for the one-walker parse; safe
+    // because each `txt` row is self-contained span HTML (the server client
+    // sets one line per innerHTML), so no colour can leak across the joins.
+    const rawRows = rows.slice()
+    setExportSource(crtLines.size > 0
+      ? { runs: () => htmlToRuns(rawRows.join('\n')), slug: screenSlug(crtTag ?? '') }
+      : null)
     // The skills menu (`m`) ships a fixed two-column terminal grid; reflow it
     // into a single column so it fits a phone without horizontal panning. Only
     // then may it wrap: a grid the reflow couldn't measure is still 79 columns
@@ -3555,6 +3607,9 @@ export function buildGameView(
     // false) — hideOverlay's resync brings it back with the map.
     closeMinimap({ suspend: true })
     chatView.hidePill()
+    // Whatever renders next isn't (yet) exportable; the exportable shows
+    // (showUiPush, renderCrtEl) re-set this after they've laid content down.
+    setExportSource(null)
     uiOverlay.innerHTML = ''
     uiOverlay.classList.remove('prompt-menu', 'prompt-menu-alert')
     uiOverlay.classList.toggle('overlay-float', !!opts?.float)
@@ -3760,6 +3815,7 @@ export function buildGameView(
 
   function hideOverlay(): void {
     autoCloseKbdIfOurs()
+    setExportSource(null)
     uiOverlay.style.display = 'none'
     uiOverlay.innerHTML = ''
     uiOverlay.classList.remove('prompt-menu', 'prompt-menu-alert', 'overlay-float')

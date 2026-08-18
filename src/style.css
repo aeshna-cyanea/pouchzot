@@ -2703,6 +2703,32 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   gap: 0.4rem;
 }
 
+/* Share chip for exportable fixed-width screens (screen-export.ts): floats
+   over #ui-overlay's bottom-right corner (grid sibling, same containing-block
+   trick as #chat-chip.chat-chip-float), so it survives overlay re-renders
+   and stays reachable while the body scrolls beneath it. Bottom, not top:
+   heading lines run the full 80 columns so a top corner always covers text,
+   while the bottom-right is usually past the content's ragged edge.
+   Translucent fill for when it isn't. */
+.screen-export-btn {
+  grid-area: map;
+  position: absolute;
+  bottom: max(0.5rem, var(--safe-bottom));
+  right: 0.5rem;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
+  background: rgba(10, 9, 8, 0.72);
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  color: #babdb6; /* DCSS lightgrey (.fg7) — reads as chrome, not content */
+}
+.screen-export-btn[hidden] { display: none; }
+
 .overlay-title {
   display: flex;
   align-items: center;
