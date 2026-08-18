@@ -9,6 +9,11 @@ formatting and HTML chrome differ. Drift is a bug.
 
 Notable changes to PocketZot, newest first.
 
+## 2026-08-18
+
+- Online char dumps (`#`) now link the server's dump file in the message
+  log.
+
 ## 2026-08-17
 
 - Offline games now use less memory and release it sooner after exit.
