@@ -69,10 +69,10 @@ describe('counter', () => {
   })
 
   it('appends the event value as d= and omits it when absent', async () => {
-    const count = await freshCounter()
-    count('won', {}, 3)
+    const { count, countEach } = await freshCounterModule()
+    countEach('won-each', {}, 3)
     count('dead')
-    expect(sends).toEqual(['/api/e?e=won&d=3', '/api/e?e=dead'])
+    expect(sends).toEqual(['/api/e?e=won-each&d=3', '/api/e?e=dead'])
   })
 
   it('countEach never latches — one row per occurrence', async () => {

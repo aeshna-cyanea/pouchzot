@@ -1419,7 +1419,11 @@ export function buildGameView(
         // A map message after the creation grid = the character exists.
         if (sawNewgameChoice) {
           sawNewgameChoice = false
-          if (!spectating && gameId) count('newchar')
+          if (!spectating && gameId) {
+            const offline = gameId === 'offline' ? '-offline' as const : ''
+            count(`newchar${offline}`)
+            countEach(`newchar-each${offline}`)
+          }
         }
         if (msg.clear) store.clear()
         // vgrdc is the server's complete view-centering signal (present on a
@@ -2089,9 +2093,10 @@ export function buildGameView(
           if (!cheatSeen && (msg.reason === 'won' || msg.reason === 'dead')) {
             const offline = gameId === 'offline' ? '-offline' as const : ''
             if (msg.reason === 'won') {
-              count(`won${offline}`, {}, parseWinRuneCount(msg.message))
+              countEach(`won-each${offline}`, {}, parseWinRuneCount(msg.message))
             } else {
               count(`dead${offline}`)
+              countEach(`dead-each${offline}`)
             }
           }
         }

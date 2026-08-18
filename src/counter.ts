@@ -7,13 +7,20 @@
 // won/dead/newchar/crypt: see the game-outcome gates in game-view.ts
 // (spectate/fixture/wizard-explore) — the gates live at the call sites.
 export type CountedEvent = 'boot' | 'play' | 'spectate' | 'play-offline' | 'stale-heal'
-  | 'won' | 'won-offline' | 'dead' | 'dead-offline'
-  | 'newchar' | 'crypt'
+  | 'dead' | 'dead-offline'
+  | 'newchar' | 'newchar-offline' | 'crypt'
 // Unlatched events (countEach): one row per occurrence, so their rows are
 // event totals, never people-counts. Convention: unlatched names end in
 // '-each' ('-offline' stays last), bare names are always latched — the
-// suffix, not vocabulary, carries the semantics.
+// suffix, not vocabulary, carries the semantics. Wins have NO latched
+// twin: latched 'won'/'won-offline' shipped 2026-08-18 13:57 UTC and were
+// replaced by 'won-each' the same day — wins are rare enough that missing
+// a second same-page-load win (offline runs can chain for days without a
+// reload) costs more than a people-flavored win count is worth.
 export type RepeatedEvent = 'rune-each' | 'rune-each-offline'
+  | 'won-each' | 'won-each-offline'
+  | 'dead-each' | 'dead-each-offline'
+  | 'newchar-each' | 'newchar-each-offline'
 export interface CountFlags {
   ascii?: boolean          // A: ascii render mode at session start
   standalone?: boolean     // W: display-mode standalone (installed-PWA launch)
@@ -63,7 +70,7 @@ export function count(event: CountedEvent, flags: CountFlags = {}, value?: numbe
 }
 
 // Deliberately no latch: every call is a row.
-export function countEach(event: RepeatedEvent, flags: CountFlags = {}): void {
+export function countEach(event: RepeatedEvent, flags: CountFlags = {}, value?: number): void {
   if (import.meta.env.DEV) return
-  send(event, flags)
+  send(event, flags, value)
 }
