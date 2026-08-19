@@ -2434,9 +2434,16 @@ export function buildGameView(
       }
     }
     // A ui-push layered over a shop/stash/acquirement menu (e.g. describe-item
-    // after `!`) should keep the menu's bottom row.
+    // after `!`) should keep the menu's bottom row. Same for the skills CRT
+    // (`m` → `?` → letter opens a describe popup): keep the skills row (its ⎋
+    // dismisses) instead of swapping in the d-pad. Fixed row only — the
+    // letter row is derived from the CRT lines and isn't rebuilt here.
     if (activeMenu?.tag === 'shop' || activeMenu?.tag === 'stash' || activeMenu?.tag === 'acquirement') {
       buildMenuControls(activeMenu.tag, activeMenu.flags)
+      menuControls.style.display = ''
+      touchControls.element.style.display = 'none'
+    } else if (crtActive && crtTag === 'skills') {
+      buildMenuControls(crtTag)
       menuControls.style.display = ''
       touchControls.element.style.display = 'none'
     }
