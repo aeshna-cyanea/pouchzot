@@ -15,8 +15,8 @@ import {
   validateOfflineName, OFFLINE_NAME_MAX, type OfflineChar,
 } from '../offline/offline-state'
 import {
-  buildExportPackFile, downloadPackFile, fetchEngineBuild,
-  readOfflineFiles, unpackSave, writeOfflineFiles,
+  buildExportPackFile, fetchEngineBuild,
+  readOfflineFiles, sharePack, unpackSave, writeOfflineFiles,
 } from '../offline/save-transfer'
 import {
   canPlayOffline, downloadOfflineData, formatBytes, INSTALL_SIZE_LABEL,
@@ -624,7 +624,7 @@ export function buildOfflineLobbyView(
         // Settled long before any human reaches the button; awaiting it costs
         // a microtask, not activation time.
         const file = buildExportPackFile(files, await buildStamp)
-        if (await sharePack(file)) {
+        if (await sharePack(file, showNotice)) {
           showNotice('Backup exported.')
         }
       } catch (e) {
@@ -632,35 +632,6 @@ export function buildOfflineLobbyView(
       }
     })()
   })
-
-  // Hand the pack to the platform. On touch devices the share sheet is the
-  // native save path (Save to Files / AirDrop) — an <a download> there
-  // navigates the document to a Quick Look preview whose Close (X) reloads
-  // the whole app back to the login screen (user report, 2026-07-13).
-  // Desktop keeps the plain download anchor. Returns false when the user
-  // cancelled the share sheet (nothing was exported — no success notice).
-  async function sharePack(file: File): Promise<boolean> {
-    // Both fall-throughs to the anchor are announced in DEV: on device the
-    // console is invisible, and a silent fallback is indistinguishable from
-    // the share path "not working".
-    if (navigator.maxTouchPoints > 0) {
-      if (navigator.canShare?.({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file] })
-          return true
-        } catch (e) {
-          if ((e as DOMException).name === 'AbortError') return false
-          // NotAllowedError (gesture window expired) etc. — fall through to
-          // the anchor; a preview detour beats a failed export.
-          if (import.meta.env.DEV) showNotice(`DEV: share() threw ${(e as DOMException).name} — download fallback`)
-        }
-      } else if (import.meta.env.DEV) {
-        showNotice('DEV: file share unsupported here — download fallback')
-      }
-    }
-    downloadPackFile(file)
-    return true
-  }
 
   // --- Options (RC) file -----------------------------------------------------
   // Safe here for the same reason as import: no engine owns IDBFS while a

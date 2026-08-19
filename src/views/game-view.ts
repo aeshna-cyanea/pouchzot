@@ -866,10 +866,11 @@ export function buildGameView(
   menuControls.style.display = 'none'
 
   // Share chip for exportable fixed-width screens (screen-export.ts): the `%`
-  // overview and other scroller/CRT pages. A fixed-position sibling of the
-  // overlay (not a child — enterOverlayLayout wipes uiOverlay.innerHTML on
-  // every render), visible only while an exportable screen is up, reachable
-  // regardless of how far the body has scrolled.
+  // overview and the end screen (the allowlist in showUiPush). A sibling of
+  // the overlay (not a child — enterOverlayLayout wipes uiOverlay.innerHTML
+  // on every render), absolutely positioned over the map area, visible only
+  // while an exportable screen is up, reachable regardless of how far the
+  // body has scrolled.
   const exportBtn = document.createElement('button')
   exportBtn.className = 'screen-export-btn'
   exportBtn.hidden = true
@@ -881,7 +882,11 @@ export function buildGameView(
     const src = exportSource
     if (!src || exportBusy) return
     exportBusy = true
-    void exportScreenPng(src.runs(), src.slug).finally(() => { exportBusy = false })
+    // runs() evaluates inside the async body so a synchronous throw can't
+    // skip the finally and latch the chip disabled.
+    void (async () => exportScreenPng(src.runs(), src.slug))()
+      .catch((e: unknown) => console.error('screen export failed', e))
+      .finally(() => { exportBusy = false })
   })
   function setExportSource(src: typeof exportSource): void {
     exportSource = src
@@ -2397,18 +2402,32 @@ export function buildGameView(
         uiOverlay.appendChild(buildActionsBar(msg.actions))
       }
     })
-    // Full-page terminal screens (the `%` overview scroller, txt pages, the
-    // end screen) are exportable as a PNG at their native 80-column layout —
-    // from the wire text, not the reflowed rawBody the phone renders.
+    // The share-culture screens — the `%` overview (scroller tag "resists",
+    // output.cc), the Ctrl-O dungeon overview (untagged: dgn_overview never
+    // set_tags, so it's recognised by its heading, byte-identical in 0.34.1
+    // and trunk — dgn-overview.cc:249), and the end screen — are exportable
+    // as a PNG at their native 80-column layout, from the wire text rather
+    // than the reflowed rawBody the phone renders. Deliberately an
+    // allowlist: every other scroller is a multi-page document (help, notes,
+    // Ctrl-P history…) that nobody shares and that would render an absurdly
+    // tall canvas, so unknown/future screens ship chip-less by default.
     // renderOverlay → enterOverlayLayout just cleared the source, so
     // non-exportable types need no else branch.
-    if (msg.type === 'formatted-scroller' || msg.type === 'txt-page' || msg.type === 'game-over') {
-      const exportText = msg.text ?? msg.body ?? msg.desc ?? ''
-      if (exportText.trim()) {
+    if (msg.type === 'formatted-scroller' || msg.type === 'game-over') {
+      // The end screen's headline ("Goodbye, <name>.") arrives ONLY in
+      // `title` — end.cc writes title and body separately, there is no
+      // combined text field — so prepend it or the PNG loses the line the
+      // overlay shows (and that the filename slug is built from).
+      const exportBody = msg.text ?? msg.body ?? msg.desc ?? ''
+      const exportText = msg.title?.trim() ? `${msg.title}\n\n${exportBody}` : exportBody
+      const firstLine = stripDcss(exportText).split('\n').find((l) => l.trim())?.trim() ?? ''
+      const exportable = msg.type === 'game-over' || msg.tag === 'resists'
+        || /Dungeon Overview/.test(firstLine)
+      if (exportable && exportText.trim()) {
         // Scrollers usually carry no `title` — the heading is the text's own
         // first line (the `%` overview's "Name the Title (Species Class)…"),
         // which makes a filename that names the character.
-        const slugSrc = title || stripDcss(exportText).split('\n').find((l) => l.trim()) || msg.type
+        const slugSrc = title || firstLine || msg.type
         // Whole body through dcssToHtml in one call (unlike the per-line
         // display path) so open colour switches persist across newlines.
         setExportSource({ runs: () => htmlToRuns(dcssToHtml(exportText)), slug: screenSlug(slugSrc) })
@@ -2524,15 +2543,6 @@ export function buildGameView(
     const maxKey = crtLines.size > 0 ? Math.max(...crtLines.keys()) : 0
     let rows: string[] = []
     for (let i = 0; i <= maxKey; i++) rows.push(crtLines.get(i) ?? '')
-    // Exportable as a PNG at the server's own terminal width — from the raw
-    // rows, before the phone reflow below: desktop-format sharing is the
-    // exporter's whole point. Rows join on \n for the one-walker parse; safe
-    // because each `txt` row is self-contained span HTML (the server client
-    // sets one line per innerHTML), so no colour can leak across the joins.
-    const rawRows = rows.slice()
-    setExportSource(crtLines.size > 0
-      ? { runs: () => htmlToRuns(rawRows.join('\n')), slug: screenSlug(crtTag ?? '') }
-      : null)
     // The skills menu (`m`) ships a fixed two-column terminal grid; reflow it
     // into a single column so it fits a phone without horizontal panning. Only
     // then may it wrap: a grid the reflow couldn't measure is still 79 columns
@@ -3607,8 +3617,8 @@ export function buildGameView(
     // false) — hideOverlay's resync brings it back with the map.
     closeMinimap({ suspend: true })
     chatView.hidePill()
-    // Whatever renders next isn't (yet) exportable; the exportable shows
-    // (showUiPush, renderCrtEl) re-set this after they've laid content down.
+    // Whatever renders next isn't (yet) exportable; the exportable show
+    // (showUiPush) re-sets this after it has laid content down.
     setExportSource(null)
     uiOverlay.innerHTML = ''
     uiOverlay.classList.remove('prompt-menu', 'prompt-menu-alert')

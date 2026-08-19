@@ -2,36 +2,20 @@
 
 import { describe, it, expect } from 'vitest'
 import { htmlToRuns, screenSlug } from './screen-export'
-import { dcssToHtml, uiColor, DCSS_COLOR_MAP } from '../game/dcss-colors'
+import { dcssToHtml, DCSS_COLOR_MAP } from '../game/dcss-colors'
 
 describe('htmlToRuns', () => {
-  // CRT `txt` line HTML: server-generated spans classed fgN/bgN.
-  it('maps fgN classes to palette colours', () => {
-    expect(htmlToRuns('<span class="fg14">Skills</span>')).toEqual([
-      [{ text: 'Skills', fg: uiColor(14) }],
-    ])
-  })
-
-  it('keeps coloured backgrounds but drops bg0 (terminal "no background")', () => {
-    expect(htmlToRuns(
-      '<span class="fg15 bg2">sel</span><span class="fg7 bg0">rest</span>',
-    )).toEqual([
-      [{ text: 'sel', fg: uiColor(15), bg: uiColor(2) }, { text: 'rest', fg: uiColor(7) }],
-    ])
-  })
-
   it('leaves bare text at the renderer default', () => {
     expect(htmlToRuns('plain')).toEqual([[{ text: 'plain' }]])
   })
 
-  it('inherits colour through nested elements', () => {
-    expect(htmlToRuns('<span class="fg9">a<b>b</b></span>')).toEqual([
-      [{ text: 'ab', fg: uiColor(9) }],
+  it('inherits colour through nested unstyled elements', () => {
+    expect(htmlToRuns(`<span style="color:${DCSS_COLOR_MAP.lightblue}">a<b>b</b></span>`)).toEqual([
+      [{ text: 'ab', fg: DCSS_COLOR_MAP.lightblue }],
     ])
   })
 
   it('splits lines on newlines, merges same-style fragments, keeps empty lines empty', () => {
-    // The CRT caller joins raw rows with \n before parsing.
     expect(htmlToRuns('a<span>b</span>\n')).toEqual([
       [{ text: 'ab' }],
       [],

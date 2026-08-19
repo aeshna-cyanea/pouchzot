@@ -1,24 +1,23 @@
 // Programmatic "screenshot" export of fixed-width server screens — the `%`
-// character overview ("character card"), CRT pages like the skills menu, the
-// end-of-game screen. Phones can't show the server's 80-column layout whole,
-// so sharing renders the screen at its native width into an offscreen canvas
-// and hands the PNG to the share sheet. One walker (htmlToRuns) feeds the
-// renderer: CRT `txt` line HTML is walked directly, and DCSS-markup bodies go
-// through the existing dcssToHtml first — called on the whole body in ONE
-// pass, so the engine's opens-only colour switches
-// (formatted_string::to_colour_string; see the propagateDarkgreyColor note in
-// overlay-body.ts) persist across newlines, as a terminal would have painted
-// them. game-view.ts owns the trigger chip and decides which screens are
-// exportable.
-import { DCSS_COLOR_MAP, uiColor } from '../game/dcss-colors'
-import { downloadPackFile } from '../offline/save-transfer'
+// character overview ("character card") and the end-of-game screen, the two
+// screens with a share culture behind them. Phones can't show the server's
+// 80-column layout whole, so sharing renders the screen at its native width
+// into an offscreen canvas and hands the PNG to the share sheet. One walker
+// (htmlToRuns) feeds the renderer; DCSS-markup bodies go through the existing
+// dcssToHtml first — called on the whole body in ONE pass, so the engine's
+// opens-only colour switches (formatted_string::to_colour_string; see the
+// propagateDarkgreyColor note in overlay-body.ts) persist across newlines, as
+// a terminal would have painted them. game-view.ts owns the trigger chip and
+// the exportable-screen allowlist (see the setExportSource site in
+// showUiPush).
+import { DCSS_COLOR_MAP } from '../game/dcss-colors'
+import { sharePack } from '../offline/save-transfer'
 
-// One coloured segment of a fixed-width screen line. `fg`/`bg` are hex
-// strings; absent = the renderer's defaults (lightgrey on the app background).
+// One coloured segment of a fixed-width screen line. `fg` is a hex string;
+// absent = the renderer's default (lightgrey on the app background).
 export interface DcssRun {
   text: string
   fg?: string
-  bg?: string
 }
 
 // Inline styles read back through CSSStyleDeclaration come out rgb()-form in
@@ -31,42 +30,35 @@ function cssColorHex(value: string): string {
 }
 
 // Parse screen HTML into per-line coloured runs, splitting on newline text.
-// Colour sources, both inherited through nesting: CRT span classes fg0–15 /
-// bg0–15 (same palette as uiColor; bg0 means "no background" — DCSS assumes a
-// black terminal — so it's dropped, mirroring the `#crt-display .bg0` rule in
-// style.css) and dcssToHtml's inline `style="color:…"` spans.
+// Colour source: dcssToHtml's inline `style="color:…"` spans, inherited
+// through nesting. (fgN/bgN CRT class colours were handled while CRT `txt`
+// pages were exportable — that support left with the CRT export path.)
 export function htmlToRuns(html: string): DcssRun[][] {
   const tpl = document.createElement('template')
   tpl.innerHTML = html
   const lines: DcssRun[][] = [[]]
-  const emit = (text: string, fg: string | undefined, bg: string | undefined): void => {
+  const emit = (text: string, fg: string | undefined): void => {
     text.split('\n').forEach((part, i) => {
       if (i > 0) lines.push([])
       if (!part) return
       const line = lines[lines.length - 1]
       const prev = line[line.length - 1]
-      if (prev && prev.fg === fg && prev.bg === bg) prev.text += part
-      else line.push({ text: part, ...(fg !== undefined ? { fg } : {}), ...(bg !== undefined ? { bg } : {}) })
+      if (prev && prev.fg === fg) prev.text += part
+      else line.push({ text: part, ...(fg !== undefined ? { fg } : {}) })
     })
   }
-  const walk = (node: Node, fg: string | undefined, bg: string | undefined): void => {
+  const walk = (node: Node, fg: string | undefined): void => {
     if (node.nodeType === Node.TEXT_NODE) {
-      emit(node.textContent ?? '', fg, bg)
+      emit(node.textContent ?? '', fg)
       return
     }
     if (node.nodeType === Node.ELEMENT_NODE) {
       const el = node as HTMLElement
-      for (const cls of el.classList) {
-        const m = /^(fg|bg)(\d+)$/.exec(cls)
-        if (!m) continue
-        if (m[1] === 'fg') fg = uiColor(Number(m[2]))
-        else bg = Number(m[2]) === 0 ? undefined : uiColor(Number(m[2]))
-      }
       if (el.style?.color) fg = cssColorHex(el.style.color)
     }
-    node.childNodes.forEach((child) => walk(child, fg, bg))
+    node.childNodes.forEach((child) => walk(child, fg))
   }
-  tpl.content.childNodes.forEach((child) => walk(child, undefined, undefined))
+  tpl.content.childNodes.forEach((child) => walk(child, undefined))
   return lines
 }
 
@@ -83,10 +75,23 @@ export function screenSlug(title: string): string {
 
 // Export geometry. The font matches --font-mono / --crt-line-height in
 // style.css so exports read like the in-app CRT, just at full terminal width.
+// The frame is the DCSS popup card (reference .ui-popup-outer, mirrored by
+// our .overlay-card): 2px #7d623c outline + 1px black border + 20px padding,
+// so the export looks like the dialog the screen was just shown in. MARGIN
+// stays transparent so messenger thumbnail corner-rounding can't shave the
+// bronze ring. The caption sits OUTSIDE the frame, on the transparent
+// margin below the bronze ring — the client's mark on the mat's exterior,
+// not on the shared screen, and croppable: cutting at the ring removes it
+// without touching the card. Frame bronze stays legible on both light and
+// dark backdrops (mid-tone), which the transparent surround can land on.
 const FONT_PX = 14
 const LINE_H = Math.round(FONT_PX * 1.2)
 const PAD = 20
+const MARGIN = 3
+const FRAME = 3
+const EDGE = MARGIN + FRAME
 const SCALE = 2
+const FRAME_BROWN = '#7d623c'
 
 function cssVar(name: string, fallback: string): string {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -108,29 +113,27 @@ export function renderScreenCanvas(lines: DcssRun[][], caption?: string): HTMLCa
   ctx.font = font
   const cell = ctx.measureText('0').width
   const cols = Math.max(20, ...rows.map((r) => r.reduce((n, run) => n + run.text.length, 0)))
-  const capH = caption ? Math.round(FONT_PX * 1.8) : 0
-  const cssW = Math.ceil(PAD * 2 + cols * cell)
-  const cssH = PAD * 2 + rows.length * LINE_H + capH
+  const capH = caption ? Math.round(FONT_PX * 1.4) : 0
+  const cssW = Math.ceil(PAD * 2 + cols * cell) + EDGE * 2
+  // The framed card ends at cardB; capH extends the canvas below it for the
+  // outside-the-frame caption (transparent-backed, see the geometry note).
+  const cardB = PAD * 2 + rows.length * LINE_H + EDGE * 2
+  const cssH = cardB + capH
   canvas.width = cssW * SCALE
   canvas.height = cssH * SCALE
   // Resizing reset all context state — scale and font go back on after.
   ctx.scale(SCALE, SCALE)
+  ctx.fillStyle = FRAME_BROWN
+  ctx.fillRect(MARGIN, MARGIN, cssW - MARGIN * 2, cardB - MARGIN * 2)
+  ctx.fillStyle = '#000'
+  ctx.fillRect(MARGIN + 2, MARGIN + 2, cssW - (MARGIN + 2) * 2, cardB - (MARGIN + 2) * 2)
   ctx.fillStyle = cssVar('--bg', '#0a0908')
-  ctx.fillRect(0, 0, cssW, cssH)
+  ctx.fillRect(EDGE, EDGE, cssW - EDGE * 2, cardB - EDGE * 2)
   ctx.font = font
   ctx.textBaseline = 'middle'
   rows.forEach((runs, row) => {
-    const yTop = PAD + row * LINE_H
-    let x = PAD
-    for (const run of runs) {
-      const w = run.text.length * cell
-      if (run.bg) {
-        ctx.fillStyle = run.bg
-        ctx.fillRect(x, yTop, w, LINE_H)
-      }
-      x += w
-    }
-    x = PAD
+    const yTop = EDGE + PAD + row * LINE_H
+    let x = EDGE + PAD
     for (const run of runs) {
       ctx.fillStyle = run.fg ?? DCSS_COLOR_MAP.lightgrey
       ctx.fillText(run.text, x, yTop + LINE_H / 2)
@@ -139,32 +142,25 @@ export function renderScreenCanvas(lines: DcssRun[][], caption?: string): HTMLCa
   })
   if (caption) {
     ctx.font = `${Math.round(FONT_PX * 0.85)}px ${cssVar('--font-mono', 'monospace')}`
-    ctx.fillStyle = DCSS_COLOR_MAP.darkgrey
+    // Frame colour, matching the ring it hangs under; right-aligned to the
+    // ring's outer edge, centred in the strip below the card.
+    ctx.fillStyle = FRAME_BROWN
     ctx.textAlign = 'right'
-    ctx.fillText(caption, PAD + cols * cell, PAD + rows.length * LINE_H + capH / 2)
+    ctx.fillText(caption, cssW - MARGIN, (cardB - MARGIN + cssH) / 2)
   }
   return canvas
 }
 
-// Render and hand off: the share sheet where files are shareable (iOS PWA —
-// save to Photos, send to Discord/Messages), else the plain download path.
-// Resolves once the handoff happened; a user-cancelled share sheet counts as
-// done, not as a fallback trigger.
+// Render and hand off through the shared platform path (sharePack,
+// save-transfer.ts): share sheet on touch devices — iOS PWA saves to
+// Photos, sends to Discord/Messages — plain download elsewhere. Resolves
+// false when nothing left the device: no canvas (test DOMs), no blob, or a
+// user-cancelled share sheet.
 export async function exportScreenPng(lines: DcssRun[][], slug: string): Promise<boolean> {
   const canvas = renderScreenCanvas(lines, 'pocketzot.app')
   if (!canvas) return false
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
   if (!blob) return false
   const file = new File([blob], `pocketzot-${slug}-${new Date().toISOString().slice(0, 10)}.png`, { type: 'image/png' })
-  if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file] })
-      return true
-    } catch (err) {
-      if ((err as { name?: string })?.name === 'AbortError') return true
-      // Real share failure (not a dismissal) — fall through to download.
-    }
-  }
-  downloadPackFile(file)
-  return true
+  return sharePack(file)
 }

@@ -37,6 +37,11 @@ export interface NewgameItems {
 
 export interface UiPushMsg {
   type: string
+  // formatted-scroller: the scroller's self-declared identity (scroller.cc
+  // m_tag, e.g. "resists" for the `%` overview) — the screen-export allowlist
+  // key. scroller.cc writes it unconditionally: untagged scrollers (Ctrl-O,
+  // Ctrl-P, `?/` responses) arrive as tag:"", never with the field missing.
+  tag?: string
   title?: string
   prompt?: string
   body?: string
