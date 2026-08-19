@@ -9,6 +9,13 @@ formatting and HTML chrome differ. Drift is a bug.
 
 Notable changes to PocketZot, newest first.
 
+## 2026-08-19
+
+- The character overview (`%`), dungeon overview (`Ctrl-O`), and game end
+  screens can now be exported as images at full 80-char width.
+- Opening a skill's description from the skills menu now keeps the menu's
+  context controls instead of swapping in the d-pad.
+
 ## 2026-08-18
 
 - Online char dumps (`#`) now link the server's dump file in the message
