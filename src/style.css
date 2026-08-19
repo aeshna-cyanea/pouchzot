@@ -22,7 +22,7 @@
   --map-cursor: #fce94f;
   --border:    rgba(245, 158, 11, 0.12);
 
-  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, 'Courier New', monospace;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, monospace;
   --font-ui:   system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --map-font-size: 17px;
   --map-line-height: 1.0;
