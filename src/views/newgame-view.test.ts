@@ -1,0 +1,214 @@
+// @vitest-environment happy-dom
+
+import { describe, it, expect } from 'vitest'
+import type { ClientMsg } from '../ws/types'
+import type { OverlayScreenCtx, UiPushMsg } from './game-overlays'
+import { showNewgameChoice, showRandomCombo, applyNewgameFocus } from './newgame-view'
+
+// Same inert ctx contract as game-overlays.test.ts, plus the loader and
+// spectating knobs the newgame screen consumes.
+function makeCtx(opts?: { spectating?: boolean }) {
+  const overlay = document.createElement('div')
+  document.body.appendChild(overlay)
+  const sent: ClientMsg[] = []
+  const calls = {
+    enterLayout: [] as Array<{ touch?: boolean } | undefined>,
+    renderOverlay: [] as string[],
+    focusView: 0,
+  }
+  const ctx: OverlayScreenCtx = {
+    overlay,
+    send: (m) => { sent.push(m) },
+    enterLayout: (o) => {
+      calls.enterLayout.push(o)
+      overlay.innerHTML = ''
+    },
+    renderOverlay: (title, buildBody) => {
+      calls.renderOverlay.push(title)
+      overlay.innerHTML = ''
+      const header = document.createElement('div')
+      header.className = 'overlay-title'
+      header.textContent = title
+      overlay.appendChild(header)
+      buildBody()
+    },
+    autoOpenKbd: () => {},
+    focusView: () => { calls.focusView++ },
+    getLoader: () => null,
+    isSpectating: () => opts?.spectating ?? false,
+  }
+  return { ctx, overlay, sent, calls }
+}
+
+// Background-select shaped push: mid-column labels (the Zealot bug fix),
+// a darkgrey restricted entry, tiles on every button, and menu_id.
+const BG_MSG: UiPushMsg = {
+  type: 'newgame-choice',
+  title: '<brown>Welcome, ampdt the Minotaur.',
+  'main-items': {
+    width: 2,
+    menu_id: 'background-main',
+    labels: [
+      { x: 0, y: 0, label: '<lightblue>Warrior' },
+      { x: 0, y: 4, label: '<lightblue>Zealot' },
+      { x: 1, y: 0, label: '<lightblue>Mage' },
+    ],
+    buttons: [
+      { x: 0, y: 1, hotkey: 97, labels: ['<white>a - Fighter'], description: 'Fighters are tough.', highlight_colour: 2, tile: [{ t: 9001, tex: 5 }] },
+      { x: 0, y: 5, hotkey: 102, labels: ['<white>f - Berserker'], description: 'Trog smash.', highlight_colour: 2, tile: [{ t: 9002, tex: 5 }] },
+      { x: 1, y: 1, hotkey: 113, labels: ['<darkgrey>q - Hedge Wizard'], description: 'Wands and whimsy.', highlight_colour: 7, tile: [{ t: 9003, tex: 5 }] },
+    ],
+  },
+  'sub-items': {
+    width: 2,
+    menu_id: 'background-sub',
+    buttons: [
+      { x: 0, y: 0, hotkey: 9, label: '<brown>Tab - Gnoll Artificer' },
+      { x: 1, y: 0, hotkey: 42, label: '<brown>* - Random background' },
+    ],
+  },
+}
+
+const WEAPON_MSG: UiPushMsg = {
+  type: 'newgame-choice',
+  title: 'Welcome, ampdt the Minotaur Fighter.',
+  prompt: '<cyan>You have a choice of weapons.',
+  doll: [[7025, 32], [7130, 32]],
+  'main-items': {
+    width: 1,
+    menu_id: 'weapon-main',
+    buttons: [
+      { x: 0, y: 0, hotkey: 97, labels: ['<lightgrey>a - rapier', '<lightgrey>(+1 apt)'], description: '', tile: [{ t: 4001, tex: 4 }] },
+      { x: 0, y: 1, hotkey: 98, labels: ['<white>b - flail', '<white>(+2 apt)'], description: '', tile: [{ t: 4002, tex: 4 }] },
+      { x: 0, y: 2, hotkey: 102, labels: ['<lightgrey>f - unarmed', '<lightgrey>(+1 apt)'], description: '', tile: [] },
+    ],
+  },
+}
+
+const item = (overlay: HTMLElement, name: string) =>
+  [...overlay.querySelectorAll<HTMLButtonElement>('[data-hotkey]')]
+    .find(b => b.textContent?.includes(name))!
+
+describe('showNewgameChoice — layout', () => {
+  it('hides touch controls, renders labeled sections column-major incl. mid-grid labels', () => {
+    const { ctx, overlay, calls } = makeCtx()
+    showNewgameChoice(ctx, BG_MSG)
+    expect(calls.enterLayout).toEqual([{ touch: false }])
+    const headers = [...overlay.querySelectorAll('.ngv-sec-h')].map(h => h.textContent)
+    expect(headers).toEqual(['Warrior', 'Zealot', 'Mage'])
+  })
+
+  it('renders tile-bearing single-label menus as cards without hotkey letters', () => {
+    const { ctx, overlay } = makeCtx()
+    showNewgameChoice(ctx, BG_MSG)
+    const fighter = item(overlay, 'Fighter')
+    expect(fighter.className).toContain('ngv-card')
+    expect(fighter.textContent).not.toContain('a - ')
+  })
+
+  it('renders suffix-label menus (weapons) as rows with the aptitude column', () => {
+    const { ctx, overlay } = makeCtx()
+    showNewgameChoice(ctx, WEAPON_MSG)
+    const rapier = item(overlay, 'rapier')
+    expect(rapier.className).toContain('ngv-row')
+    expect(rapier.querySelector('.ngv-row-suffix')?.textContent).toBe('(+1 apt)')
+    // unarmed has an empty tile array — blank slot keeps the name column aligned
+    expect(item(overlay, 'unarmed').querySelector('.ngv-blank')).toBeTruthy()
+  })
+
+  it('renders the doll and prompt in the title block when present', () => {
+    const { ctx, overlay } = makeCtx()
+    showNewgameChoice(ctx, WEAPON_MSG)
+    expect(overlay.querySelector('.ngv-doll')).toBeTruthy()
+    expect(overlay.querySelector('.ngv-prompt')?.textContent).toContain('choice of weapons')
+  })
+})
+
+describe('showNewgameChoice — interaction', () => {
+  it('two-tap confirm: arm previews in the dock + mirrors focus, second tap sends', () => {
+    const { ctx, overlay, sent } = makeCtx()
+    showNewgameChoice(ctx, BG_MSG)
+    const fighter = item(overlay, 'Fighter')
+    fighter.click()
+    expect(fighter.classList.contains('ngv-sel')).toBe(true)
+    expect(overlay.querySelector('.ngv-desc')?.textContent).toContain('Fighters are tough.')
+    // arming mirrors the cursor to spectators — the only send so far
+    expect(sent).toEqual([{ msg: 'outer_menu_focus', hotkey: 97, menu_id: 'background-main' }])
+    fighter.click()
+    expect(sent[1]).toEqual({ msg: 'input', text: 'a' })
+  })
+
+  it('tapping another item re-arms; tapping empty space disarms back to shortcuts', () => {
+    const { ctx, overlay, sent } = makeCtx()
+    showNewgameChoice(ctx, BG_MSG)
+    item(overlay, 'Fighter').click()
+    item(overlay, 'Berserker').click()
+    expect(sent.filter(m => m.msg === 'input')).toEqual([])
+    expect(item(overlay, 'Fighter').classList.contains('ngv-sel')).toBe(false)
+    expect(item(overlay, 'Berserker').classList.contains('ngv-sel')).toBe(true)
+    // empty-space tap cancels the arm and restores the shortcut actions
+    overlay.querySelector<HTMLElement>('.ngv-sec-h')!.click()
+    expect(overlay.querySelector('.ngv-desc')).toBeNull()
+    expect(overlay.querySelectorAll('.ngv-action')).toHaveLength(2)
+    // next tap arms again rather than confirming
+    item(overlay, 'Berserker').click()
+    expect(sent.filter(m => m.msg === 'input')).toEqual([])
+  })
+
+  it('action shortcuts send on a single tap, non-printables via {key,keycode}', () => {
+    const { ctx, overlay, sent } = makeCtx()
+    showNewgameChoice(ctx, BG_MSG)
+    const actions = [...overlay.querySelectorAll<HTMLButtonElement>('.ngv-action')]
+    expect(actions.map(a => a.textContent)).toEqual(['Tab - Gnoll Artificer', '* - Random background'])
+    actions[0].click()
+    actions[1].click()
+    expect(sent).toEqual([
+      { msg: 'key', keycode: 9 },
+      { msg: 'input', text: '*' },
+    ])
+  })
+
+  it('inbound server focus highlights without arming or hiding the shortcuts', () => {
+    const { ctx, overlay, sent } = makeCtx()
+    showNewgameChoice(ctx, BG_MSG)
+    applyNewgameFocus(97, false)  // the initial focus the server emits on open
+    const fighter = item(overlay, 'Fighter')
+    expect(fighter.classList.contains('ngv-sel')).toBe(true)
+    expect(overlay.querySelector('.ngv-desc')).toBeNull()          // dock still shortcuts
+    fighter.click()
+    expect(sent.filter(m => m.msg === 'input')).toEqual([])        // tap arms, not confirms
+  })
+
+  it('ignores from_client echoes while playing', () => {
+    const { ctx, overlay } = makeCtx()
+    showNewgameChoice(ctx, BG_MSG)
+    applyNewgameFocus(102, true)
+    expect(item(overlay, 'Berserker').classList.contains('ngv-sel')).toBe(false)
+  })
+})
+
+describe('showNewgameChoice — spectating', () => {
+  it('taps are inert and inbound focus (incl. from_client) shows the description', () => {
+    const { ctx, overlay, sent } = makeCtx({ spectating: true })
+    showNewgameChoice(ctx, BG_MSG)
+    item(overlay, 'Fighter').click()
+    expect(sent).toEqual([])
+    applyNewgameFocus(102, true)  // the watched player's own move
+    expect(item(overlay, 'Berserker').classList.contains('ngv-sel')).toBe(true)
+    expect(overlay.querySelector('.ngv-desc')?.textContent).toContain('Trog smash.')
+    expect(overlay.querySelector('.ngv-desc')?.textContent).not.toContain('Tap again')
+  })
+})
+
+describe('showRandomCombo', () => {
+  it('renders through renderOverlay with markup stripped and sends the picked key', () => {
+    const { ctx, overlay, sent, calls } = makeCtx()
+    showRandomCombo(ctx, { type: 'newgame-random-combo', prompt: '<yellow>You are a Vine Stalker Hedge Wizard.</yellow>', doll: [[7025, 32]] })
+    expect(calls.renderOverlay).toEqual(['You are a Vine Stalker Hedge Wizard.'])
+    expect(overlay.querySelector('.overlay-title .tile-stack')).toBeTruthy()
+    const btns = [...overlay.querySelectorAll<HTMLButtonElement>('.action-btn')]
+    expect(btns.map(b => b.textContent)).toEqual(['Yes (Y)', 'Reroll (n)', 'Quit (q)'])
+    btns[2].click()
+    expect(sent).toEqual([{ msg: 'input', text: 'q' }])
+  })
+})

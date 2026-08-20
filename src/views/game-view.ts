@@ -41,9 +41,10 @@ import {
 import { SpellHarvester, type SpellEntry } from '../game/spell-harvest'
 import { ChatView } from './chat-view'
 import {
-  showInputDialog, showNewgameChoice, showRandomCombo, showSeedSelection,
+  showInputDialog, showSeedSelection,
   type OverlayScreenCtx, type UiPushMsg,
 } from './game-overlays'
+import { showNewgameChoice, showRandomCombo, applyNewgameFocus, setNewgameRows } from './newgame-view'
 
 // Minimal surface of Chromium's CloseWatcher API (absent from TS's DOM lib);
 // used by the Android back handler below. Feature-detected at the single use
@@ -1200,6 +1201,9 @@ export function buildGameView(
   if (import.meta.env.DEV) {
     (window as unknown as { __dcssTiles: (on?: boolean) => void }).__dcssTiles =
       (on) => setRenderMode(on === undefined ? (renderMode === 'tiles' ? 'ascii' : 'tiles') : (on ? 'tiles' : 'ascii'))
+    // __dcssNgcRows() — force the newgame-choice row item-shape (the "B"
+    // bakeoff fallback; applies on the next push/re-render).
+    ;(window as unknown as { __dcssNgcRows: (on?: boolean) => boolean }).__dcssNgcRows = setNewgameRows
     // Spell harvest: __dcssHarvestSpells() fires a silent `I` and fills
     // __dcssSpellCache with the parsed memorised spells.
     ;(window as unknown as { __dcssHarvestSpells: () => void }).__dcssHarvestSpells = () => harvester.harvest()
@@ -1633,6 +1637,15 @@ export function buildGameView(
 
       case 'ui-state': {
         const raw = msg as unknown as Record<string, unknown>
+        // Newgame focus sync arrives as a flat ui-state (outer-menu.cc
+        // scroll_button_into_view): {type:"newgame-choice", button_focus,
+        // from_client, menu_id}. The server emits an initial focus right
+        // after the push and re-emits on server-side arrow navigation.
+        if (raw['type'] === 'newgame-choice') {
+          const focus = raw['button_focus']
+          if (typeof focus === 'number') applyNewgameFocus(focus, raw['from_client'] === true)
+          break
+        }
         const text = raw['text'] as string | undefined
         const body = raw['body'] as string | undefined
         const highlight = raw['highlight'] as string | undefined
@@ -3671,6 +3684,10 @@ export function buildGameView(
     renderOverlay,
     autoOpenKbd,
     focusView,
+    // Getters, not captured values: `loader` is reassigned on game_client
+    // and `spectating` on transition, both after this ctx is built.
+    getLoader: () => loader,
+    isSpectating: () => !!spectating,
   }
 
   function renderOverlay(title: string, buildBody: () => void, opts?: { float?: boolean }): void {

@@ -3090,77 +3090,148 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   cursor: default;
 }
 
-/* Newgame choice grid */
-.ngc-wrap {
+/* Newgame choice screen (newgame-view.ts; spec
+   dev-material/newgame-redesign.md). Sprite cards in balanced rows for
+   species/backgrounds, rows for weapons; #ui-overlay is the scroll
+   container, so the dock pins with position:sticky at its bottom. */
+.ngv-wrap {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
 }
 
-.ngc-grid {
-  display: grid;
-  grid-template-columns: repeat(var(--ngc-cols, 3), 1fr);
-  gap: 2px;
+.ngv-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.35;
+  padding: 0 0.25rem;
 }
 
-.ngc-col-header {
-  font-size: 0.7rem;
+.ngv-prompt { color: var(--text); }
+
+.ngv-sec-h {
+  color: #5e78ff;
   text-align: center;
-  padding: 0.15rem 0.1rem;
-  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  padding: 0.45rem 0 0.2rem;
+  border-bottom: 1px solid rgba(94, 120, 255, 0.18);
+  margin-bottom: 0.25rem;
 }
 
-.ngc-btn {
+.ngv-groups {
+  display: flex;
+  flex-direction: column;
+}
+
+.ngv-card-row {
+  display: flex;
+  justify-content: center;
+}
+
+/* Item buttons share the reference's invisible-until-selected border;
+   the selected border color is the wire highlight_colour (set inline as
+   --ngv-sel-color: blue = axis unknown, green = recommended, lightgrey
+   = restricted). */
+.ngv-card,
+.ngv-row {
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 2px;
-  color: var(--text);
+  border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 0.78rem;
-  padding: 0.2rem 0.25rem;
-  text-align: left;
   cursor: pointer;
-  width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  padding: 0.3rem 0.15rem;
 }
 
-.ngc-btn:active { background: rgba(245, 158, 11, 0.15); }
-.ngc-btn.ngc-selected { background: rgba(245, 158, 11, 0.18); border-color: rgba(245, 158, 11, 0.4); }
+.ngv-card {
+  width: 25%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.68rem;
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
 
-.ngc-desc {
+.ngv-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 40px;
+  width: 100%;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.ngv-row .ngv-row-suffix { margin-left: auto; }
+
+.ngv-blank { display: inline-block; flex-shrink: 0; }
+
+.ngv-card.ngv-sel,
+.ngv-row.ngv-sel {
+  border-color: var(--ngv-sel-color, var(--accent));
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ngv-doll { flex-shrink: 0; }
+
+/* The pinned dock: sub-items shortcuts by default, the armed item's
+   description during the two-tap confirm. margin-top:auto pins it to
+   the overlay bottom even when the grid is shorter than the screen. */
+.ngv-dock {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  z-index: 2;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px 8px 0 0;
+  padding: 0.35rem 0.6rem 0.45rem;
+  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.5);
+}
+
+.ngv-hint {
+  font-size: 0.62rem;
+  font-style: italic;
+  color: var(--text-dim);
+  margin-bottom: 0.15rem;
+}
+
+/* Compact two-ish columns: nowrap entries flow-wrap, long ones take a
+   line of their own — never truncated (deployed-footer footprint). */
+.ngv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1.1rem;
+  row-gap: 0;
+}
+
+.ngv-action {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.55;
+  white-space: nowrap;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ngv-desc {
   font-size: 0.75rem;
   line-height: 1.45;
-  padding: 0.4rem 0.5rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 3px;
   color: var(--text);
-  min-height: 3.8em;
+  min-height: 3.2em;
 }
 
-.ngc-desc-text { color: var(--text-dim); }
-.ngc-confirm-hint { color: var(--text-dim); font-size: 0.7rem; }
-
-.ngc-sub-grid {
-  border-top: 1px solid var(--border);
-  padding-top: 0.25rem;
-}
-
-.ngc-sub-grid .ngc-btn {
-  font-size: 0.75rem;
-}
-
-.ngc-btn .ngc-btn-main {
-  display: inline-block;
-}
-
-.ngc-btn .ngc-btn-suffix {
-  float: right;
-  margin-left: 0.5rem;
-  color: var(--text-dim);
-}
+.ngv-desc .ngv-confirm { color: var(--text-dim); font-size: 0.68rem; }
 
 /* Menu controls (replaces touch controls during menus) */
 #menu-controls {
