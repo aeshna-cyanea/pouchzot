@@ -64,7 +64,9 @@ const BG_MSG: UiPushMsg = {
     menu_id: 'background-sub',
     buttons: [
       { x: 0, y: 0, hotkey: 9, label: '<brown>Tab - Gnoll Artificer' },
-      { x: 1, y: 0, hotkey: 42, label: '<brown>* - Random background' },
+      // Leading spaces are newgame.cc's own column alignment (dash on
+      // col 6) and must survive to the DOM.
+      { x: 1, y: 0, hotkey: 42, label: '<brown>    * - Random background' },
     ],
   },
 }
@@ -116,6 +118,18 @@ describe('showNewgameChoice — layout', () => {
     expect(item(overlay, 'unarmed').querySelector('.ngv-blank')).toBeTruthy()
   })
 
+  it('opens a new step at the top but keeps scroll when the step re-renders', () => {
+    const { ctx, overlay } = makeCtx()
+    showNewgameChoice(ctx, BG_MSG)
+    overlay.scrollTop = 120
+    // ui-pop re-render of the SAME push (restoreTopLayer): stay put.
+    showNewgameChoice(ctx, BG_MSG)
+    expect(overlay.scrollTop).toBe(120)
+    // A different step (background -> weapon): back to the top.
+    showNewgameChoice(ctx, WEAPON_MSG)
+    expect(overlay.scrollTop).toBe(0)
+  })
+
   it('renders the doll and prompt in the title block when present', () => {
     const { ctx, overlay } = makeCtx()
     showNewgameChoice(ctx, WEAPON_MSG)
@@ -138,7 +152,17 @@ describe('showNewgameChoice — interaction', () => {
     expect(sent[1]).toEqual({ msg: 'input', text: 'a' })
   })
 
-  it('tapping another item re-arms; tapping empty space disarms back to shortcuts', () => {
+  it('keeps the shortcuts mounted while an item is armed', () => {
+    const { ctx, overlay } = makeCtx()
+    showNewgameChoice(ctx, BG_MSG)
+    item(overlay, 'Fighter').click()
+    // Both at once, reference parity: an arm must never strand the
+    // shortcuts behind a hunt for empty space to tap.
+    expect(overlay.querySelector('.ngv-desc')?.textContent).toContain('Fighters are tough.')
+    expect(overlay.querySelectorAll('.ngv-action')).toHaveLength(2)
+  })
+
+  it('tapping another item re-arms; tapping empty space disarms back to the hint', () => {
     const { ctx, overlay, sent } = makeCtx()
     showNewgameChoice(ctx, BG_MSG)
     item(overlay, 'Fighter').click()
@@ -159,13 +183,25 @@ describe('showNewgameChoice — interaction', () => {
     const { ctx, overlay, sent } = makeCtx()
     showNewgameChoice(ctx, BG_MSG)
     const actions = [...overlay.querySelectorAll<HTMLButtonElement>('.ngv-action')]
-    expect(actions.map(a => a.textContent)).toEqual(['Tab - Gnoll Artificer', '* - Random background'])
+    expect(actions.map(a => a.textContent)).toEqual([
+      'Tab - Gnoll Artificer', '    * - Random background',
+    ])
     actions[0].click()
     actions[1].click()
     expect(sent).toEqual([
       { msg: 'key', keycode: 9 },
       { msg: 'input', text: '*' },
     ])
+  })
+
+  it('lays the shortcuts out on the wire sub-items grid', () => {
+    const { ctx, overlay } = makeCtx()
+    showNewgameChoice(ctx, BG_MSG)
+    const actions = overlay.querySelector<HTMLElement>('.ngv-actions')!
+    expect(actions.classList.contains('ngv-actions-2')).toBe(true)
+    const cols = [...overlay.querySelectorAll<HTMLElement>('.ngv-action')]
+      .map(a => a.style.gridColumn)
+    expect(cols).toEqual(['1', '2'])
   })
 
   it('inbound server focus highlights without arming or hiding the shortcuts', () => {

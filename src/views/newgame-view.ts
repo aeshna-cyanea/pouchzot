@@ -117,28 +117,62 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
   const shape = forceRows ? 'rows' : pickShape(groups, mainItems?.width ?? 1)
   const menuId = (mainItems as { menu_id?: string } | undefined)?.menu_id
 
-  // ---- dock (pinned; two states) ----
+  // #ui-overlay is reused across pushes, and enterLayout's innerHTML wipe
+  // never clamps its scrollTop: the clear and the refill happen in one
+  // task, so no layout ever runs against an empty container and the
+  // offset survives into the next step's content (species scrolled to 297
+  // -> background opens at 297). Reset only when the step actually
+  // changes — ui-pop re-renders THIS push through the same path
+  // (restoreTopLayer -> showUiPush), so returning from `?` or `%` must
+  // land where the user left off. The marker lives on the overlay, which
+  // outlives the wipe but not the game view, so a fresh view always
+  // starts at the top.
+  const stepKey = menuId ?? String(msg.title ?? '')
+  if (ctx.overlay.dataset.ngcStep !== stepKey) {
+    ctx.overlay.dataset.ngcStep = stepKey
+    ctx.overlay.scrollTop = 0
+  }
+
+  // ---- dock (pinned) ----
+  // The shortcuts are ALWAYS mounted; arming an item only adds its
+  // description above them. An earlier revision swapped the two — which
+  // stranded the shortcuts behind a tap on whatever empty space the user
+  // could find, and the reference shows both at once anyway.
   const dock = document.createElement('div')
   dock.className = 'ngv-dock'
 
-  function dockShortcuts(): void {
-    dock.textContent = ''
-    if (!spectating) {
-      const hint = document.createElement('div')
-      hint.className = 'ngv-hint'
-      hint.textContent = 'Tap to preview, tap again to confirm.'
-      dock.appendChild(hint)
-    }
+  function buildActions(): HTMLElement {
     const actions = document.createElement('div')
     actions.className = 'ngv-actions'
-    for (const btn of subItems?.buttons ?? []) {
+    // Keep the wire grid: sub-items are always width 2 in practice
+    // (species/background/weapon -sub), and reading order runs across
+    // then down. Capped at 2 — a wider grid would ellipsise to nothing
+    // at phone widths, so its extra columns fold into column 2.
+    const subCols = Math.min(Math.max(subItems?.width ?? 1, 1), 2)
+    if (subCols === 2) actions.classList.add('ngv-actions-2')
+    const subButtons = [...(subItems?.buttons ?? [])]
+      .sort((a, b) => ((a.y ?? 0) - (b.y ?? 0)) || ((a.x ?? 0) - (b.x ?? 0)))
+    for (const btn of subButtons) {
       const a = document.createElement(spectating ? 'span' : 'button')
       a.className = 'ngv-action'
-      // Wire labels carry column-alignment padding ("<brown>    * - Random
-      // species") — meaningless once the desktop grid is gone.
-      const raw = String(btn.label ?? btn.labels?.[0] ?? '')
-        .trim().replace(/^(<\w+>)\s+/, '$1')
+      // Explicit column + auto row flow reproduces the wire placement
+      // even when the last row is short (species-sub: "? - Help" alone).
+      a.style.gridColumn = String(Math.min(btn.x ?? 0, subCols - 1) + 1)
+      // Leading whitespace is the server's own column alignment, NOT
+      // stray padding: newgame.cc hardcodes "    * - ", "    ! - ",
+      // "Space - ", "  Tab - " so every dash in the right column lands
+      // on col 6. The weapon menu's builder does NOT pad (newgame.cc:1802
+      // "* - Random weapon" vs "Bksp - Return to character menu"), so its
+      // right column is ragged — on the desktop too. Looks like an upstream
+      // oversight rather than intent, but we render whatever arrives
+      // verbatim rather than re-aligning client-side. Kept literal by
+      // white-space:pre on .ngv-action.
+      const raw = String(btn.label ?? btn.labels?.[0] ?? '').trimEnd()
       a.innerHTML = dcssToHtml(raw)
+      // text-overflow paints its ellipsis in the BLOCK's color, not the
+      // inner markup span's — without this it comes out as the UA's
+      // buttontext (near-black on the dark dock) instead of brown.
+      a.style.color = labelColor(raw)
       if (!spectating) {
         a.addEventListener('click', () => {
           sendHotkey(ctx, btn.hotkey)
@@ -147,18 +181,28 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
       }
       actions.appendChild(a)
     }
-    dock.appendChild(actions)
+    return actions
   }
 
-  function dockDescription(item: NgcItem): void {
-    dock.textContent = ''
-    const d = document.createElement('div')
-    d.className = 'ngv-desc'
-    d.innerHTML =
-      `<strong>${escHtml(item.name)}</strong>` +
-      (item.description ? `<br>${escHtml(item.description)}` : '') +
-      (spectating ? '' : '<br><em class="ngv-confirm">Tap again to confirm; tap elsewhere to cancel.</em>')
-    dock.appendChild(d)
+  // Built once and re-parented on every dock render, so the shortcut
+  // buttons keep their identity (and their listeners) across arm/disarm.
+  const actions = buildActions()
+
+  // item = the armed item's description, null = the standing tap hint.
+  // The shortcuts follow either way.
+  function renderDock(item: NgcItem | null): void {
+    const head = document.createElement('div')
+    if (item) {
+      head.className = 'ngv-desc'
+      head.innerHTML =
+        `<strong>${escHtml(item.name)}</strong>` +
+        (item.description ? `<br>${escHtml(item.description)}` : '') +
+        (spectating ? '' : '<br><em class="ngv-confirm">Tap again to confirm.</em>')
+    } else {
+      head.className = 'ngv-hint'
+      head.textContent = spectating ? '' : 'Tap to preview, tap again to confirm.'
+    }
+    dock.replaceChildren(head, actions)
   }
 
   // ---- selection state (all local to this render; restoreTopLayer
@@ -182,7 +226,7 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
   function disarm(): void {
     armedEl = null
     setHighlight(null)
-    dockShortcuts()
+    renderDock(null)
   }
 
   function onItemTap(el: HTMLElement, item: NgcItem): void {
@@ -194,7 +238,7 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
     }
     armedEl = el
     setHighlight(el)
-    dockDescription(item)
+    renderDock(item)
     // Mirror our cursor to spectators. Server type-checks both fields;
     // skip when the push carried no menu_id (ancient servers).
     if (typeof item.hotkey === 'number' && menuId) {
@@ -224,6 +268,7 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
           card.dataset.hotkey = itemHotkeyAttr(item)
           card.appendChild(spriteOrBlank(loader, item.tiles as TileRef[], 2))
           const name = document.createElement('span')
+          name.className = 'ngv-card-name'
           name.textContent = item.name
           name.style.color = labelColor(item.rawLabel)
           card.appendChild(name)
@@ -266,7 +311,7 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
     if (!(ev.target as HTMLElement).closest('[data-hotkey]')) disarm()
   })
 
-  dockShortcuts()
+  renderDock(null)
   ctx.overlay.appendChild(dock)
 
   // Inbound focus (initial focus on open, server-side arrow nav, the
@@ -282,8 +327,7 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
     armedEl = null
     setHighlight(el)
     const item = itemByEl.get(el)
-    if (spectating && item) dockDescription(item)
-    else dockShortcuts()
+    renderDock(spectating && item ? item : null)
   }
 
   ctx.focusView()

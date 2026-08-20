@@ -1202,8 +1202,15 @@ export function buildGameView(
     (window as unknown as { __dcssTiles: (on?: boolean) => void }).__dcssTiles =
       (on) => setRenderMode(on === undefined ? (renderMode === 'tiles' ? 'ascii' : 'tiles') : (on ? 'tiles' : 'ascii'))
     // __dcssNgcRows() — force the newgame-choice row item-shape (the "B"
-    // bakeoff fallback; applies on the next push/re-render).
-    ;(window as unknown as { __dcssNgcRows: (on?: boolean) => boolean }).__dcssNgcRows = setNewgameRows
+    // bakeoff fallback). Repaints the live screen so the toggle is a
+    // direct A/B rather than "wait for the next step"; guarded because
+    // restoreTopLayer would otherwise repaint (or hide) whatever
+    // unrelated layer happens to be on top.
+    ;(window as unknown as { __dcssNgcRows: (on?: boolean) => boolean }).__dcssNgcRows = (on) => {
+      const rows = setNewgameRows(on)
+      if (uiStack[uiStack.length - 1]?.type === 'newgame-choice') restoreTopLayer()
+      return rows
+    }
     // Spell harvest: __dcssHarvestSpells() fires a silent `I` and fills
     // __dcssSpellCache with the parsed memorised spells.
     ;(window as unknown as { __dcssHarvestSpells: () => void }).__dcssHarvestSpells = () => harvester.harvest()

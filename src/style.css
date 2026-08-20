@@ -3125,6 +3125,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 .ngv-groups {
   display: flex;
   flex-direction: column;
+  padding-bottom: 0.4rem;
 }
 
 .ngv-card-row {
@@ -3132,27 +3133,37 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   justify-content: center;
 }
 
-/* Item buttons share the reference's invisible-until-selected border;
-   the selected border color is the wire highlight_colour (set inline as
+/* Item buttons share the reference's invisible-until-selected outline;
+   the selected color is the wire highlight_colour (set inline as
    --ngv-sel-color: blue = axis unknown, green = recommended, lightgrey
-   = restricted). */
+   = restricted). It is an inset shadow rather than a border so it costs
+   the layout nothing: in a 4-card row a 12-character name ("Shapeshifter")
+   clears its card by ~1.7px, and a 1px border on each side is enough to
+   push its last letter onto a second line. */
 .ngv-card,
 .ngv-row {
   background: transparent;
-  border: 1px solid transparent;
+  border: none;
+  outline: 1px solid transparent;
   border-radius: 4px;
   font-family: var(--font-mono);
   cursor: pointer;
   padding: 0.3rem 0.15rem;
 }
 
+/* Cards share the row evenly but never exceed a third of it: a 4-card
+   row lands at 25% (the tightest name column), 3- and 2-card rows widen
+   to 33% so balanced short rows still span the full width instead of
+   sitting at a narrower pitch than their neighbours. */
 .ngv-card {
-  width: 25%;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 33.34%;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.2rem;
-  font-size: 0.68rem;
+  font-size: 0.78rem;
   line-height: 1.25;
   text-align: center;
   overflow-wrap: anywhere;
@@ -3162,11 +3173,29 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  min-height: 40px;
+  /* 44px: the sprite is only 32, and a list of 32px rows is a column of
+     sliver tap targets — the exact failure the redesign replaced. */
+  min-height: 44px;
   width: 100%;
   padding: 0.2rem 0.4rem;
   font-size: 0.85rem;
   text-align: left;
+}
+
+/* The name is the width-critical part of a card, and the card's own
+   horizontal padding is there for the sprite and the selection border —
+   so let the text have those pixels back. In a 4-card row "Shapeshifter"
+   misses a one-line fit by under a pixel on iOS (whose monospace metrics
+   run a touch wider than desktop WebKit's); an ellipsis there would spend
+   a letter's width to hide a letter. Genuinely long names (Earth
+   Elementalist) still wrap, which is correct — the full name matters when
+   you are picking a background. */
+.ngv-card-name {
+  width: calc(100% + 0.3rem);
+  margin-inline: -0.15rem;
+  /* Names sit centred, so the reclaimed padding is shared either side;
+     the selection ring is inset and overlaps at most a hairline of a
+     name that runs the full width. */
 }
 
 .ngv-row .ngv-row-suffix { margin-left: auto; }
@@ -3175,7 +3204,12 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 
 .ngv-card.ngv-sel,
 .ngv-row.ngv-sel {
-  border-color: var(--ngv-sel-color, var(--accent));
+  /* Outline, not border or inset shadow: it costs the layout nothing AND
+     draws outside the box, so a name that runs the card's full width
+     keeps its clearance instead of being crowded by the ring. Cards abut
+     with no gap, but the pixel it borrows from a neighbour is always
+     empty — their names are centred. */
+  outline: 1px solid var(--ngv-sel-color, var(--accent));
   background: rgba(255, 255, 255, 0.04);
 }
 
@@ -3184,32 +3218,88 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 /* The pinned dock: sub-items shortcuts by default, the armed item's
    description during the two-tap confirm. margin-top:auto pins it to
    the overlay bottom even when the grid is shorter than the screen. */
+/* The dock is full-bleed to the overlay's edges: a sticky element is
+   confined to its containing block (the flex CONTENT box), so as long as
+   #ui-overlay keeps its 0.75rem bottom padding the bar parks that far
+   short of the edge and scrolling cards show through the sliver beneath
+   it — a negative margin does not relax the confinement. So the overlay
+   drops its bottom padding for this screen and the dock carries it. */
+#ui-overlay:has(> .ngv-dock) { padding-bottom: 0; }
+
 .ngv-dock {
   position: sticky;
   bottom: 0;
-  margin-top: auto;
+  margin: auto -0.5rem 0;
   z-index: 2;
   background: var(--surface2);
-  border: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   border-radius: 8px 8px 0 0;
-  padding: 0.35rem 0.6rem 0.45rem;
-  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.5);
+  padding: 0.35rem 0.6rem 0.7rem;
+  /* Second shadow is a seam sealer, not decoration: at some viewport
+     sizes the sticky bar lands a fraction of a pixel above the overlay's
+     edge (measured 0.031px at 430x932) and antialiasing renders that as a
+     hairline of the scrolled cards behind it. A solid downward shadow
+     fills the crack and is clipped by the scroll container's padding box,
+     so it is invisible whenever there is no crack. */
+  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.5), 0 8px 0 0 var(--surface2);
 }
 
 .ngv-hint {
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   font-style: italic;
   color: var(--text-dim);
   margin-bottom: 0.15rem;
 }
 
-/* Compact two-ish columns: nowrap entries flow-wrap, long ones take a
-   line of their own — never truncated (deployed-footer footprint). */
+/* The wire sub-items grid verbatim (--ngv-sub-cols = its width, capped
+   at 2 for phone widths; each entry carries its wire column). Equal
+   tracks keep the key glyphs in two straight gutters; over-long entries
+   ellipsise tail-first, so the "K - " prefix always survives. */
+/* Dock content holds a readable measure instead of stretching to a
+   tablet's full width: at 685px the description ran ~92 characters a
+   line and the two shortcut columns bunched against the left edge. */
+.ngv-desc,
+.ngv-hint,
 .ngv-actions {
-  display: flex;
-  flex-wrap: wrap;
-  column-gap: 1.1rem;
+  max-width: 34rem;
+  margin-inline: auto;
+}
+
+.ngv-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 0.3rem;
   row-gap: 0;
+}
+
+/* Two-column wire grids: the left track takes only what its own entries
+   need (capped at half) rather than a flat 50%, handing the slack to the
+   right track — which is where the long entries live ("Space - Pick
+   background first", "Tab - <previous character>"), so they ellipsise a
+   couple of characters later. Never worse than 50/50: the cap is the
+   fallback when the left entries are the long ones (weapon menu). */
+/* One rule at every width, so nothing jumps as the window narrows.
+   Both tracks are sized to their own content and pushed to opposite
+   edges: the left column's text starts on the block's left edge and the
+   right column's longest line ends on its right edge, spanning the same
+   width as the rule above them. Entries stay left-aligned INSIDE each
+   track, which is what keeps the dashes in a line.
+
+   It degrades continuously because of how grid sizes tracks. Wide: both
+   reach max-content and the leftover becomes the gap. Narrowing: the gap
+   closes to zero. Narrower still: track sizing distributes what's left
+   equally BUT freezes a track at its own max-content and rolls the
+   remainder into the other — so on a phone the left column takes only
+   the width its entries need and the right column, which holds the long
+   ones, gets everything else. That is exactly what an explicit
+   `fit-content(50%) minmax(0, 1fr)` bought (measured identical), without
+   a second rule to snap between. minmax(0, ...) rather than bare
+   max-content so an over-long entry (the Tab shortcut carries a whole
+   character description) shrinks the tracks and ellipsises instead of
+   overflowing the dock. */
+.ngv-actions-2 {
+  grid-template-columns: minmax(0, max-content) minmax(0, max-content);
+  justify-content: space-between;
 }
 
 .ngv-action {
@@ -3219,16 +3309,31 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   font-family: var(--font-mono);
   font-size: 0.72rem;
   line-height: 1.55;
-  white-space: nowrap;
   cursor: pointer;
   text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* pre, not nowrap: the wire label's leading spaces ARE the alignment
+     (see dockShortcuts) and normal white-space processing would eat them. */
+  white-space: pre;
 }
 
+/* Sits above the shortcuts, which are always mounted — so no reserved
+   min-height: the dock grows by the description's own lines when an item
+   is armed and shrinks back when it isn't. Nothing above it moves either
+   way (it is bottom-pinned; the grid scrolls under it). */
 .ngv-desc {
   font-size: 0.75rem;
   line-height: 1.45;
   color: var(--text);
-  min-height: 3.2em;
+  /* Ruled off from the shortcuts below: one is what you are previewing,
+     the other is the menu's own commands. */
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3rem;
+  margin-bottom: 0.3rem;
+  max-height: 30vh;
+  overflow-y: auto;
 }
 
 .ngv-desc .ngv-confirm { color: var(--text-dim); font-size: 0.68rem; }
