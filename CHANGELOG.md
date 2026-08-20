@@ -11,13 +11,13 @@ Notable changes to PocketZot, newest first.
 
 ## 2026-08-19
 
-- On Android, the map and menus should now use the device's default
-  monospace font instead of a typewriter-style fallback. Unverified as I
-  have no Android device.
-- The character overview (`%`), dungeon overview (`Ctrl-O`), and game end
-  screens can now be exported as images at full 80-char width.
+- The character overview, dungeon overview, and game end screens can now
+  be exported as images at full width.
 - Opening a skill's description from the skills menu now keeps the menu's
   context controls instead of swapping in the d-pad.
+- On Android, the app should now use the device's default monospace font
+  instead of an unintended fallback. Unverified as I have no Android
+  device.
 
 ## 2026-08-18
 
