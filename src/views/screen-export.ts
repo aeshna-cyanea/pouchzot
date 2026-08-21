@@ -79,11 +79,14 @@ export function screenSlug(title: string): string {
 // our .overlay-card): 2px #7d623c outline + 1px black border + 20px padding,
 // so the export looks like the dialog the screen was just shown in. MARGIN
 // stays transparent so messenger thumbnail corner-rounding can't shave the
-// bronze ring. The caption sits OUTSIDE the frame, on the transparent
-// margin below the bronze ring — the client's mark on the mat's exterior,
-// not on the shared screen, and croppable: cutting at the ring removes it
-// without touching the card. Frame bronze stays legible on both light and
-// dark backdrops (mid-tone), which the transparent surround can land on.
+// bronze ring. The optional caption sits OUTSIDE the frame, on the
+// transparent margin below the bronze ring — the client's mark on the mat's
+// exterior, not on the shared screen, and croppable: cutting at the ring
+// removes it without touching the card. Currently switched OFF at the
+// exportScreenPng call site (no caption argument); the renderer keeps the
+// support so turning it back on is one argument. Frame bronze stays legible
+// on both light and dark backdrops (mid-tone), which the transparent
+// surround can land on.
 const FONT_PX = 14
 const LINE_H = Math.round(FONT_PX * 1.2)
 const PAD = 20
@@ -157,7 +160,8 @@ export function renderScreenCanvas(lines: DcssRun[][], caption?: string): HTMLCa
 // false when nothing left the device: no canvas (test DOMs), no blob, or a
 // user-cancelled share sheet.
 export async function exportScreenPng(lines: DcssRun[][], slug: string): Promise<boolean> {
-  const canvas = renderScreenCanvas(lines, 'pocketzot.app')
+  // Watermark caption off for now — pass 'pocketzot.app' here to restore it.
+  const canvas = renderScreenCanvas(lines)
   if (!canvas) return false
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
   if (!blob) return false
