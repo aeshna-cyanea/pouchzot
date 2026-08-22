@@ -60,8 +60,8 @@ Custom servers also supply WebTiles tile metadata as JavaScript, just as the bui
 
 The original PocketZot implementation was written mostly with Claude Code under its developer's direction and review. PouchZot continues from that codebase as an independently maintained fork.
 
-PouchZot contains modifications beginning 2026-08-14. Its corresponding source is available at <https://github.com/aeshna-cyanea/pocketzot>, licensed under [AGPL-3.0-or-later](LICENSE). The original project is available at <https://github.com/pocketzot/pocketzot>. See [ATTRIBUTION.md](ATTRIBUTION.md) for copyright, fork, and DCSS attribution details.
+PouchZot contains modifications beginning 2026-08-14. Its corresponding source is available at <https://github.com/aeshna-cyanea/pouchzot>, licensed under [AGPL-3.0-or-later](LICENSE). The original project is available at <https://github.com/pocketzot/pocketzot>. See [ATTRIBUTION.md](ATTRIBUTION.md) for copyright, fork, and DCSS attribution details.
 
 ## Feedback
 
-Please report bugs and suggestions in PouchZot's [issue tracker](https://github.com/aeshna-cyanea/pocketzot/issues).
+Please report bugs and suggestions in PouchZot's [issue tracker](https://github.com/aeshna-cyanea/pouchzot/issues).

@@ -20,10 +20,10 @@ function run(
 
 describe('classify — the design doc routing table', () => {
   it('normalizes a GitHub project Pages prefix without touching other paths', () => {
-    expect(stripBasePath('/pocketzot/', '/pocketzot')).toBe('/')
-    expect(stripBasePath('/pocketzot/assets/index.js', '/pocketzot')).toBe('/assets/index.js')
-    expect(stripBasePath('/pocketzot-other/assets/index.js', '/pocketzot'))
-      .toBe('/pocketzot-other/assets/index.js')
+    expect(stripBasePath('/pouchzot/', '/pouchzot')).toBe('/')
+    expect(stripBasePath('/pouchzot/assets/index.js', '/pouchzot')).toBe('/assets/index.js')
+    expect(stripBasePath('/pouchzot-other/assets/index.js', '/pouchzot'))
+      .toBe('/pouchzot-other/assets/index.js')
     expect(stripBasePath('/assets/index.js', '')).toBe('/assets/index.js')
   })
 

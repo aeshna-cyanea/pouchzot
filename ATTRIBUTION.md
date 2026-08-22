@@ -11,7 +11,7 @@ Original PocketZot copyright (C) 2026 the PocketZot developer.
 PouchZot modifications copyright (C) 2026 aeshna-cyanea.
 
 This fork contains modifications beginning 2026-08-14. Its corresponding
-source is available at <https://github.com/aeshna-cyanea/pocketzot>.
+source is available at <https://github.com/aeshna-cyanea/pouchzot>.
 
 Licensed under the GNU Affero General Public License, version 3 or (at your
 option) any later version (AGPL-3.0-or-later). See `LICENSE` for the full text.

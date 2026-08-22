@@ -13,7 +13,7 @@ const PRECACHE = __PRECACHE_MANIFEST__
 __CLASSIFY__
 
 const CACHE_NAME = 'pz-shell-' + PRECACHE.version
-// Root deployments use '/'; project Pages uses e.g. '/pocketzot/'.
+// Root deployments use '/'; project Pages uses e.g. '/pouchzot/'.
 const SHELL_URL = PRECACHE.basePath + '/'
 // Bounds lie-fi only (a fetch that hangs instead of failing). Genuinely
 // offline, fetch() rejects in milliseconds and the fallback serves the

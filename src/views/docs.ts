@@ -9,7 +9,7 @@ import { getPref, setPref } from '../prefs'
 // files or env flags required. The static public/*.html pages are just the
 // operator's SEO/marketing mirrors.
 
-const REPO = 'https://github.com/aeshna-cyanea/pocketzot'
+const REPO = 'https://github.com/aeshna-cyanea/pouchzot'
 
 // ABOUT.md uses repo-relative links (LICENSE, ATTRIBUTION.md) that only resolve
 // on GitHub. Rewrite them for web display; leave absolute http/mailto and

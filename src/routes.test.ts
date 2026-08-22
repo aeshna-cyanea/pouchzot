@@ -4,31 +4,31 @@ import { normalizeServerUrl } from './servers'
 
 const CDI = 'wss://crawl.dcss.io/socket'
 
-function source(search = '', hash = '', path = '/pocketzot/') {
+function source(search = '', hash = '', path = '/pouchzot/') {
   return { href: `https://example.test${path}${search}${hash}`, search, hash }
 }
 
 describe('app routes', () => {
   it('uses WebTiles hashes beneath a compact server selector', () => {
     expect(routeHref({ kind: 'online-login', wsUrl: CDI, loginUsername: 'Foo Bar' }, source('?src=pwa')))
-      .toBe('/pocketzot/?src=pwa&server=crawl.dcss.io&username=Foo+Bar')
+      .toBe('/pouchzot/?src=pwa&server=crawl.dcss.io&username=Foo+Bar')
     expect(routeHref({ kind: 'online-lobby', wsUrl: CDI, loginUsername: 'Foo Bar' }, source('?src=pwa')))
-      .toBe('/pocketzot/?src=pwa&server=crawl.dcss.io&username=Foo+Bar#lobby')
+      .toBe('/pouchzot/?src=pwa&server=crawl.dcss.io&username=Foo+Bar#lobby')
     expect(routeHref({
       kind: 'online-play', wsUrl: CDI, gameId: 'dcss-0.35', loginUsername: 'alice',
     }, source()))
-      .toBe('/pocketzot/?server=crawl.dcss.io&username=alice#play-dcss-0.35')
+      .toBe('/pouchzot/?server=crawl.dcss.io&username=alice#play-dcss-0.35')
     expect(routeHref({ kind: 'online-watch', wsUrl: CDI, username: 'Foo Bar' }, source()))
-      .toBe('/pocketzot/?server=crawl.dcss.io#watch-Foo%20Bar')
+      .toBe('/pouchzot/?server=crawl.dcss.io#watch-Foo%20Bar')
     expect(routeHref({ kind: 'online-login', wsUrl: 'wss://custom.example/socket' }, source()))
-      .toBe('/pocketzot/?server=custom.example')
+      .toBe('/pouchzot/?server=custom.example')
   })
 
   it('integrates the existing offline query with lobby and save-slot routes', () => {
     expect(routeHref({ kind: 'offline-lobby' }, source('?engine=fake')))
-      .toBe('/pocketzot/?engine=fake&offline=1#lobby')
+      .toBe('/pouchzot/?engine=fake&offline=1#lobby')
     expect(routeHref({ kind: 'offline-play', name: 'My Guy' }, source()))
-      .toBe('/pocketzot/?offline=1#play-My%20Guy')
+      .toBe('/pouchzot/?offline=1#play-My%20Guy')
   })
 
   it('parses online, offline, and malformed routes safely', () => {
@@ -59,6 +59,6 @@ describe('app routes', () => {
 
   it('clears only route-owned parameters when returning home', () => {
     expect(routeHref({ kind: 'home' }, source('?offline=1&username=alice&engine=fake&fixture=x', '#lobby')))
-      .toBe('/pocketzot/?engine=fake&fixture=x')
+      .toBe('/pouchzot/?engine=fake&fixture=x')
   })
 })

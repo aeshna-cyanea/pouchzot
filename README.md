@@ -92,4 +92,4 @@ or the DCSS development team. See [ATTRIBUTION.md](ATTRIBUTION.md) for details.
 ## Feedback
 
 Please report bugs and suggestions in this repository's
-[issue tracker](https://github.com/aeshna-cyanea/pocketzot/issues).
+[issue tracker](https://github.com/aeshna-cyanea/pouchzot/issues).
