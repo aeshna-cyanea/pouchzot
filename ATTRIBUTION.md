@@ -1,25 +1,31 @@
 # Attribution and licensing
 
-PocketZot is an independent, unofficial mobile app for playing Dungeon Crawl
-Stone Soup (DCSS) — online as a client for WebTiles servers, or offline
-against a build of the DCSS engine running on the device. It is not
-affiliated with or endorsed by the DCSS development team.
+PouchZot is an independent, modified fork of
+[PocketZot](https://github.com/pocketzot/pocketzot), an unofficial mobile app
+for playing Dungeon Crawl Stone Soup (DCSS) — online as a client for WebTiles
+servers, or offline against a build of the DCSS engine running on the device.
+PouchZot is not affiliated with or endorsed by the original PocketZot project
+or the DCSS development team.
 
-Copyright (C) 2026 the PocketZot developer.
+Original PocketZot copyright (C) 2026 the PocketZot developer.
+PouchZot modifications copyright (C) 2026 aeshna-cyanea.
+
+This fork contains modifications beginning 2026-08-14. Its corresponding
+source is available at <https://github.com/aeshna-cyanea/pocketzot>.
 
 Licensed under the GNU Affero General Public License, version 3 or (at your
 option) any later version (AGPL-3.0-or-later). See `LICENSE` for the full text.
 
 ## Relationship to DCSS
 
-PocketZot connects to standard DCSS WebTiles servers and speaks the same
+PouchZot connects to standard DCSS WebTiles servers and speaks the same
 WebSocket protocol as the official client. The client code in this repository
 contains none of the DCSS game engine; in online play, gameplay runs entirely
 on the server. Offline play uses the separately built engine described below.
 
 DCSS is Copyright 1997–2025 Linley Henzell, the dev team, and contributors,
 licensed under the GNU General Public License, version 2 or (at your option)
-any later version. PocketZot's AGPL-3.0-or-later license is compatible with
+any later version. PouchZot's AGPL-3.0-or-later license is compatible with
 this through that "or later" option.
 
 ## The offline engine
@@ -31,8 +37,10 @@ worker and communicating with the client over a message channel. The app
 fetches it as a separate download at first use; it is not contained in this
 repository.
 
-The engine's complete corresponding source is available at
-<https://github.com/pocketzot/pocketzot-engine>.
+The engine's complete corresponding source is available in the
+[`aeshna-cyanea/crawl`](https://github.com/aeshna-cyanea/crawl) fork. The exact
+engine commit for each deployed artifact is pinned in
+`.github/offline-engine.json` and by this repository's `engine/` submodule.
 
 ## Interoperability constants
 

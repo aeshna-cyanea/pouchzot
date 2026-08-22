@@ -1,4 +1,4 @@
-// Decorated "PocketZot" wordmark for the login screen.
+// Decorated "Zot" segment of the PouchZot wordmark for the login screen.
 //
 // With probability LOGO_CONFIG.pDecorate the flat title morphs — after a short
 // delay, so the page never looks broken on load — into a per-character roll of
@@ -19,7 +19,10 @@ export const LOGO_CONFIG = {
   staggerMs: 150,      // per-character delay across the reveal
 }
 
-export const LOGO_WORD = 'PocketZot'
+// Keep the inherited procedural treatment on the shared "Zot" ancestry. The
+// new "Pouch" prefix remains plain because the authenticated palette was built
+// for PocketZot and has no entries for every new letter.
+export const LOGO_WORD = 'Zot'
 
 interface GlyphSub {
   ch: string         // the substitute glyph

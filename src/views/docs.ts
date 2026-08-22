@@ -9,14 +9,13 @@ import { getPref, setPref } from '../prefs'
 // files or env flags required. The static public/*.html pages are just the
 // operator's SEO/marketing mirrors.
 
-const REPO = 'https://github.com/pocketzot/pocketzot'
+const REPO = 'https://github.com/aeshna-cyanea/pocketzot'
 
 // ABOUT.md uses repo-relative links (LICENSE, ATTRIBUTION.md) that only resolve
-// on GitHub, and points at the donations page as /support. Rewrite them for web
-// display; leave absolute http/mailto and root-absolute paths untouched.
+// on GitHub. Rewrite them for web display; leave absolute http/mailto and
+// root-absolute paths untouched.
 function resolveAboutLink(href: string): string {
   if (/^(https?:|mailto:)/i.test(href)) return href
-  if (href === '/support') return '/support.html'
   if (href.startsWith('/') || href.startsWith('#')) return href
   return `${REPO}/blob/main/${href}`
 }

@@ -444,7 +444,7 @@ export function buildLobbyView(
       if (otherGames.some(g => isBelowSupportCutoff(parseDcssVersion(g.gameId)))) {
         const note = document.createElement('p')
         note.className = 'lobby-more-games-note'
-        note.textContent = 'Versions before 0.24 predate PocketZot’s supported range — starting a new character there usually won’t work.'
+        note.textContent = 'Versions before 0.24 predate PouchZot’s supported range — starting a new character there usually won’t work.'
         details.appendChild(note)
       }
       gamesEl.appendChild(details)

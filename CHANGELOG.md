@@ -7,7 +7,13 @@ formatting and HTML chrome differ. Drift is a bug.
 
 # What's new
 
-Notable changes to PocketZot, newest first.
+Notable changes to PouchZot, newest first. Entries before 2026-08-21 are
+inherited from the original PocketZot project.
+
+## 2026-08-21
+
+- Renamed the fork PouchZot and clarified its source, copyright, and
+  relationship to the original PocketZot project.
 
 ## 2026-08-14
 

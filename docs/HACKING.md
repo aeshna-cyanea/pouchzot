@@ -1,11 +1,11 @@
-# Learning and hacking on PocketZot
+# Learning and hacking on PouchZot
 
-This is a guided map of PocketZot for someone who knows some JavaScript and
+This is a guided map of PouchZot for someone who knows some JavaScript and
 wants to understand, debug, and safely change the project. It is not necessary
 to read it straight through. Pick a code tour that resembles the feature you
 want to change, follow the links, and keep the relevant test open beside it.
 
-PocketZot has no application framework and no backend of its own. It is a
+PouchZot has no application framework and no backend of its own. It is a
 static TypeScript/Vite application. Views create ordinary DOM elements, the
 online game speaks WebTiles over a WebSocket, and the offline game substitutes
 an in-browser implementation of that same connection boundary.
@@ -115,7 +115,7 @@ transformation and bundling.
 | [src/golden/](../src/golden/) | Captured WebTiles frames and replay tests |
 | [src/style.css](../src/style.css) | Responsive layout and nearly all visual styling |
 | [vite.config.ts](../vite.config.ts) | Vite build and generated service worker |
-| [engine/](../engine/) | Git submodule containing the PocketZot Crawl fork |
+| [engine/](../engine/) | Git submodule containing the PouchZot Crawl fork |
 
 `README.md` is the concise project and repository landing page. `ABOUT.md` is
 the longer user-facing copy that the app imports and renders in its About and
@@ -255,7 +255,7 @@ touch/keyboard -> GameConnection.send
 ```
 
 The counterpart on the engine side is documented in the
-[PocketZot WASM engine guide](../engine/crawl-ref/source/wasm/README.md).
+[PouchZot WASM engine guide](../engine/crawl-ref/source/wasm/README.md).
 The fork replaces the native WebTiles server's Unix socket and terminal IPC
 with JavaScript queues, but tries to preserve the standard message protocol.
 
@@ -303,7 +303,7 @@ stop further dispatch.
 
 There are two independent products involved in an offline deployment.
 
-### 1. The PocketZot application
+### 1. The PouchZot application
 
 `npm run build` type-checks and tests first; its Vite stage transforms and
 bundles the client, copies `public/`, and generates `dist/sw.js`. If ignored
@@ -319,7 +319,7 @@ checked Vite build on a clean GitHub runner. It does not compile the engine.
 ### 2. The Crawl engine and deployable pack
 
 `engine/` is a shallow Git submodule pointing at a direct fork of
-`crawl/crawl`. The PocketZot port is maintained as commits on top of a recorded
+`crawl/crawl`. The PouchZot port is maintained as commits on top of a recorded
 upstream Crawl base. The release build runs locally so a Pages deployment does
 not spend GitHub Actions CPU compiling Crawl and Emscripten.
 
@@ -339,7 +339,7 @@ Details and manual stages are in the engine guide linked above.
 ### Full local build without GitHub
 
 To compile both products entirely on the local machine, from source already
-present in this checkout, run this at the PocketZot repository root:
+present in this checkout, run this at the PouchZot repository root:
 
 ```sh
 JOBS=8 npm run build:full
@@ -357,7 +357,7 @@ change the checked-in engine pin, commit, or push anything. It requires the
 engine submodule and its dependency submodules to be present, the native Crawl
 build dependencies, PyYAML, and `emcc`/`em++` on `PATH`.
 
-From the PocketZot repository root, the normal publishing command is:
+From the PouchZot repository root, the normal publishing command is:
 
 ```sh
 npm run release:engine
@@ -387,7 +387,7 @@ GitHub's moving “Latest” release pointer. Do not commit the large generated
 files; `.gitignore` intentionally excludes them.
 
 To update the engine to newer Crawl, work in the submodule: fetch the selected
-upstream commit, merge or rebase the PocketZot commits onto it, update
+upstream commit, merge or rebase the PouchZot commits onto it, update
 `wasm/crawl-base` and `wasm/crawl-version`, resolve any source changes, and run
 the release-tool and full release checks. The engine modifications are mostly
 organized under `wasm/`, but necessarily patch several Crawl C++ files to

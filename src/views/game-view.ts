@@ -493,7 +493,7 @@ export function buildGameView(
 
     const banner = document.createElement('div')
     banner.className = 'version-notice'
-    banner.textContent = `DCSS ${formatDcssVersion(ver!)} is older than PocketZot supports — expect rough edges. Tap to dismiss.`
+    banner.textContent = `DCSS ${formatDcssVersion(ver!)} is older than PouchZot supports — expect rough edges. Tap to dismiss.`
     banner.addEventListener('click', () => banner.remove())
     setTimeout(() => banner.remove(), 15000)
     view.appendChild(banner)
@@ -507,7 +507,7 @@ export function buildGameView(
           const body = document.createElement('div')
           body.className = 'dialog-body'
           const p = document.createElement('p')
-          p.textContent = `Character creation on DCSS ${formatDcssVersion(ver!)} isn’t supported by PocketZot (versions before 0.24 predate the character-creation menus it supports).`
+          p.textContent = `Character creation on DCSS ${formatDcssVersion(ver!)} isn’t supported by PouchZot (versions before 0.24 predate the character-creation menus it supports).`
           const btnRow = document.createElement('div')
           btnRow.className = 'dialog-buttons'
           const btn = document.createElement('button')

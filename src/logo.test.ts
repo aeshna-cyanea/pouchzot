@@ -11,8 +11,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { decorateLogo, rollLogoChar, LOGO_WORD, LOGO_CONFIG } from './logo'
 
 // Letters that have NO lookalike swap (must never change glyph), vs. the rest.
-const NO_SWAP = ['k']
-const HAS_SWAP = ['P', 'o', 'c', 'e', 't', 'Z']
+const NO_SWAP: string[] = []
+const HAS_SWAP = ['Z', 'o', 't']
 
 const savedShift = LOGO_CONFIG.pGlyphShift
 afterEach(() => { LOGO_CONFIG.pGlyphShift = savedShift })
@@ -96,40 +96,40 @@ describe('decorateLogo', () => {
   })
 
   it('keeps a trailing suffix as plain text after the spans', () => {
-    const el = makeTitle('PocketZot (fork)')
+    const el = makeTitle('PouchZot (fork)')
     decorateLogo(el)
     expect(wordmarkSpans(el)).toHaveLength(LOGO_WORD.length)
     expect(spanText(el)).toBe(LOGO_WORD)             // suffix is NOT inside a span
-    expect(el.textContent).toBe('PocketZot (fork)')  // suffix preserved
+    expect(el.textContent).toBe('PouchZot (fork)')   // suffix preserved
     const last = el.lastChild
     expect(last).toBeInstanceOf(Text)                // a plain text node, not a span
     expect(last?.textContent).toBe(' (fork)')
   })
 
   it('keeps a leading prefix as plain text before the spans', () => {
-    const el = makeTitle('(fork) PocketZot')
+    const el = makeTitle('(fork) PouchZot')
     decorateLogo(el)
     expect(wordmarkSpans(el)).toHaveLength(LOGO_WORD.length)
     expect(spanText(el)).toBe(LOGO_WORD)
-    expect(el.textContent).toBe('(fork) PocketZot')
+    expect(el.textContent).toBe('(fork) PouchZot')
     const first = el.firstChild
     expect(first).toBeInstanceOf(Text)
-    expect(first?.textContent).toBe('(fork) ')
+    expect(first?.textContent).toBe('(fork) Pouch')
   })
 
   it('leaves the title untouched when LOGO_WORD is absent (renamed fork)', () => {
-    const el = makeTitle('MyZot')
+    const el = makeTitle('MyOrb')
     decorateLogo(el)
     expect(wordmarkSpans(el)).toHaveLength(0)
-    expect(el.textContent).toBe('MyZot')
+    expect(el.textContent).toBe('MyOrb')
   })
 
   it('is idempotent: re-decorating does not duplicate spans or text', () => {
-    const el = makeTitle('PocketZot (fork)')
+    const el = makeTitle('PouchZot (fork)')
     decorateLogo(el)
     decorateLogo(el)
     expect(wordmarkSpans(el)).toHaveLength(LOGO_WORD.length)
-    expect(el.textContent).toBe('PocketZot (fork)')
+    expect(el.textContent).toBe('PouchZot (fork)')
   })
 
   it('tapping forces a fresh roll even when the pDecorate gate is off', () => {

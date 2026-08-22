@@ -1,10 +1,10 @@
-# About PocketZot
+# About PouchZot
 
-PocketZot is an unofficial [DCSS](https://crawl.develz.org) app designed for iOS and Android phones in portrait mode. Play online on public [WebTiles](https://crawl.develz.org/wordpress/howto) servers, or offline with a full build of DCSS that runs entirely on your device.
+PouchZot is an independent, modified fork of [PocketZot](https://github.com/pocketzot/pocketzot), an unofficial [DCSS](https://crawl.develz.org) app designed for iOS and Android phones in portrait mode. Play online on public [WebTiles](https://crawl.develz.org/wordpress/howto) servers, or offline with a full build of DCSS that runs entirely on your device.
 
 ## Getting started
 
-DCSS has no app on the App Store, but you don't need one: install PocketZot like an app with "Add to Home Screen". Then log in to a WebTiles server and play, or tap "Play offline". iPads and other tablets work too.
+DCSS has no app on the App Store, but you don't need one: install PouchZot like an app with "Add to Home Screen". Then log in to a WebTiles server and play, or tap "Play offline". iPads and other tablets work too.
 
 ## Features
 
@@ -52,20 +52,16 @@ Current stable and trunk DCSS are supported. Versions back to 0.24 generally wor
 
 ## Security and privacy
 
-PocketZot has no accounts of its own. Your browser connects directly to your chosen DCSS server over WebSocket, just like the desktop WebTiles client; all built-in servers use encrypted `wss://` connections. Credentials go only in the login message and are never stored. Saved logins keep the server's session cookie, not your password; when that token expires, PocketZot asks for the password inline to refresh it. The site records anonymous usage counts.
+PouchZot has no accounts of its own. Your browser connects directly to your chosen DCSS server over WebSocket, just like the desktop WebTiles client; all built-in servers use encrypted `wss://` connections. Credentials go only in the login message and are never stored. Saved logins keep the server's session cookie, not your password; when that token expires, PouchZot asks for the password inline to refresh it. The site records anonymous usage counts.
 
 Custom servers also supply WebTiles tile metadata as JavaScript, just as the built-in servers do. Only connect to a custom server you trust.
 
 ## How it was built
 
-Most of the implementation was written with Claude Code, under my direction and review. All design and product decisions, testing, and QA were mine.
+The original PocketZot implementation was written mostly with Claude Code under its developer's direction and review. PouchZot continues from that codebase as an independently maintained fork.
 
-The source is available at <https://github.com/pocketzot/pocketzot>, licensed under [AGPL-3.0-or-later](LICENSE). See [ATTRIBUTION.md](ATTRIBUTION.md) for its relationship to DCSS.
+PouchZot contains modifications beginning 2026-08-14. Its corresponding source is available at <https://github.com/aeshna-cyanea/pocketzot>, licensed under [AGPL-3.0-or-later](LICENSE). The original project is available at <https://github.com/pocketzot/pocketzot>. See [ATTRIBUTION.md](ATTRIBUTION.md) for copyright, fork, and DCSS attribution details.
 
 ## Feedback
 
-Please send any comments, questions, or bug reports to <pocketzot@proton.me>. If you're enjoying the app, I'd love to hear from you.
-
-## Support
-
-If you like the app and want to support its development, donations are sincerely appreciated. Please see the [Support page](/support).
+Please report bugs and suggestions in PouchZot's [issue tracker](https://github.com/aeshna-cyanea/pocketzot/issues).
