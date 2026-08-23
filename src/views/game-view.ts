@@ -369,10 +369,11 @@ export function buildGameView(
   let uiCutoff = -1
   // Mirrors the engine's m_menu_stack depth (menus + CRT frames + ui-push
   // layouts). Known skew: server-side a CRT occupies a real stack slot
-  // (push_crt_menu) while crtActive is a boolean that close_menu doesn't
-  // clear — between a CRT's close_menu and the layer/close_all_menus that
-  // follows, the count can be off by one. Pre-existing modeling; acceptable
-  // because no engine cutoff site can start under a CRT screen.
+  // (push_crt_menu) while crtActive is a boolean with no stack position —
+  // a close_menu arriving while a menu sits above the CRT pops the menu,
+  // so a CRT pushed *over* a menu can be off by one until the
+  // close_all_menus that follows. Acceptable because no engine cutoff site
+  // can start under a CRT screen.
   const overlayDepth = () => menuStack.length + (crtActive ? 1 : 0) + uiStack.length
   const cutoffCovers = (depth: number) => uiCutoff >= 0 && depth <= uiCutoff
   const cutoffHidesAll = () => cutoffCovers(overlayDepth())
@@ -2049,6 +2050,21 @@ export function buildGameView(
         // Swallow the close for a spell menu we harvested but never pushed,
         // so it can't pop/clear a real overlay underneath.
         if (harvester.consumePendingClose()) break
+        // A CRT frame (push_crt_menu) tears down via this same close_menu
+        // (tileweb.cc pop_menu). With no menu above it, the close is the
+        // CRT's own — end it here. The usual `m` skill screen masks this:
+        // main.cc skill_menu() → redraw_screen() → pop_all_ui_layouts sends
+        // a close_all_menus right after. But check_selected_skills() on
+        // load (files.cc _restore_game, a save with no skill training) runs
+        // before _post_init sets need_save, so redraw_screen takes its
+        // early-return arm and only the bare close_menu arrives — leaving
+        // crtActive set meant restoreTopLayer re-mounted an empty CRT over
+        // the map: a black screen, no controls, forever.
+        if (menuStack.length === 0 && crtActive) {
+          crtActive = false
+          crtTag = undefined
+          crtLines.clear()
+        }
         menuStack.pop()
         const prev = menuStack[menuStack.length - 1] ?? null
         menuShift.reset()

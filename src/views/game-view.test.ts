@@ -872,6 +872,24 @@ describe('menu handler', () => {
     expect(isHidden(overlay(h))).toBe(true)
   })
 
+  // Resume-with-no-skill-training: files.cc check_selected_skills opens the
+  // skills CRT before need_save is set, so its teardown is a bare close_menu
+  // with NO trailing close_all_menus (redraw_screen early-returns). The CRT
+  // must end on that close alone or the map never comes back.
+  it('a bare close_menu ends a CRT screen (no close_all_menus follows on load)', () => {
+    const h = setup()
+    h.dispatch({ msg: 'menu', type: 'crt', tag: 'skills' })
+    h.dispatch({ msg: 'txt', id: 1, lines: { '0': 'Skill screen' } })
+    expect(isHidden(overlay(h))).toBe(false)
+    h.dispatch({ msg: 'close_menu' })
+    expect(isHidden(overlay(h))).toBe(true)
+    expect(overlay(h).querySelector('#crt-display')).toBeNull()
+    // A later regular menu must not resurrect the dead CRT when it closes.
+    h.dispatch({ msg: 'menu', tag: 'inventory', title: { text: 'Inventory' }, items: [] })
+    h.dispatch({ msg: 'close_menu' })
+    expect(isHidden(overlay(h))).toBe(true)
+  })
+
   // The reference client keeps a covered menu's DOM (and thus its scroll)
   // alive in its popup stack; our single overlay frame rebuilds the list, so
   // showMenu saves/restores the offset explicitly (menuScrollTops).

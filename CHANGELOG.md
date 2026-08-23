@@ -9,6 +9,11 @@ formatting and HTML chrome differ. Drift is a bug.
 
 Notable changes to PocketZot, newest first.
 
+## 2026-08-23
+
+- Fixed a black screen that could occur after resuming an online game that
+  opened on the skills screen (saved with no skill left training).
+
 ## 2026-08-19
 
 - The character overview, dungeon overview, and game end screens can now be
