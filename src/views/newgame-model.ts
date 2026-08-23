@@ -9,8 +9,38 @@
 // a column's buttons belong to the nearest label above them — which
 // reproduces the desktop reading order (Warrior, Zealot, Adventurer,
 // Warrior-mage, Mage) as vertical section bands.
-import type { NewgameButton, NewgameItems } from './game-overlays'
 import { stripDcss } from './overlay-body'
+import { DCSS_COLOR_MAP } from '../game/dcss-colors'
+import type { TileRef } from '../game/tiles/tile-view'
+
+// ---- wire shapes (ui-push type:"newgame-choice") ----
+
+export interface NewgameButton {
+  hotkey?: string | number
+  label?: string
+  labels?: string[]
+  x?: number
+  y?: number
+  description?: string
+  highlight_colour?: number
+  tile?: Array<{t: number; tex: number}>
+}
+
+export interface NewgameGridLabel {
+  x: number
+  y: number
+  label: string
+}
+
+export interface NewgameItems {
+  buttons?: NewgameButton[]
+  labels?: NewgameGridLabel[]
+  width?: number
+  height?: number
+  // Per-grid id ("species-main", "weapon-sub", …) — the address for
+  // outer_menu_focus (newgame-view.ts); absent on ancient servers.
+  menu_id?: string
+}
 
 export interface NgcItem {
   hotkey: string | number | undefined
@@ -18,12 +48,16 @@ export interface NgcItem {
   // prefix (letters aren't shown — phones have no keys; physical keyboards
   // still work via the document key handler).
   name: string
-  rawLabel: string
+  // Effective text color (hex): recommended/restricted state rides in the
+  // label's leading color tag (newgame.cc: white / lightgrey / darkgrey),
+  // and the crawl binary never closes tags, so the first tag colors the
+  // whole label.
+  color: string
   // Second label entry (weapon menu aptitude column, e.g. "(+2 apt)").
   suffix: string
   description: string
   highlightColour: number | undefined
-  tiles: Array<{ t: number; tex: number; ymax?: number }>
+  tiles: TileRef[]
 }
 
 export interface NgcGroup {
@@ -48,10 +82,11 @@ export function displayName(plainLabel: string): string {
 export function toItem(btn: NewgameButton): NgcItem {
   const labels = btn.labels ?? (btn.label !== undefined ? [btn.label] : [])
   const raw = String(labels[0] ?? '')
+  const tag = /^\s*<(\w+)>/.exec(raw)
   return {
     hotkey: btn.hotkey,
     name: displayName(stripDcss(raw).trim()),
-    rawLabel: raw,
+    color: (tag && DCSS_COLOR_MAP[tag[1].toLowerCase()]) || DCSS_COLOR_MAP.lightgrey,
     suffix: labels.length >= 2 ? stripDcss(String(labels[1])).trim() : '',
     description: btn.description ?? '',
     highlightColour: btn.highlight_colour,
@@ -115,8 +150,38 @@ export function balanceRows(n: number, max = 4): number[] {
 // automatically any more; they remain one flip away via the DEV shape
 // override (newgame-view.ts setNewgameShape).
 export function pickShape(groups: NgcGroup[], width = 1): NgcShape {
-  const items = groups.flatMap(g => g.items)
-  if (items.length === 0 || width <= 1) return 'rows'
-  if (items.some(i => i.suffix)) return 'rows'
+  // parseGroups drops empty groups, so no groups ⟺ no items.
+  if (groups.length === 0 || width <= 1) return 'rows'
+  if (groups.some(g => g.items.some(i => i.suffix))) return 'rows'
   return 'columns'
+}
+
+// One parse per push: the grid groups, the auto layout pick, the per-grid
+// menu_ids (each grid has its own — species-main / species-sub — and the
+// outer_menu_focus mirror must name the grid the armed button lives in),
+// and the step identity (menu_id when the server sends one, else the
+// title) that the view's scroll persistence keys on.
+export interface NewgameChoice {
+  groups: NgcGroup[]
+  shape: NgcShape
+  menuId: string | undefined
+  subMenuId: string | undefined
+  stepKey: string
+}
+
+export function parseNewgameChoice(msg: {
+  title?: string
+  'main-items'?: NewgameItems
+  'sub-items'?: NewgameItems
+}): NewgameChoice {
+  const mainItems = msg['main-items']
+  const groups = mainItems ? parseGroups(mainItems) : []
+  const menuId = mainItems?.menu_id
+  return {
+    groups,
+    shape: pickShape(groups, mainItems?.width ?? 1),
+    menuId,
+    subMenuId: msg['sub-items']?.menu_id,
+    stepKey: menuId ?? msg.title ?? '',
+  }
 }

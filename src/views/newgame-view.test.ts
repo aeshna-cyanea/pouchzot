@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest'
 import type { ClientMsg } from '../ws/types'
 import type { OverlayScreenCtx, UiPushMsg } from './game-overlays'
-import { showNewgameChoice, showRandomCombo, applyNewgameFocus, setNewgameShape } from './newgame-view'
+import { showNewgameChoice, showRandomCombo, setNewgameShape } from './newgame-view'
 
 // Same inert ctx contract as game-overlays.test.ts, plus the loader and
 // spectating knobs the newgame screen consumes.
@@ -110,9 +110,9 @@ describe('showNewgameChoice — layout', () => {
     const fighter = item(overlay, 'Fighter')
     expect(fighter.className).toContain('ngv-row')
     expect(fighter.querySelector('.ngv-row-name')?.textContent).toBe('Fighter')
-    // darkgrey = not recommended; stamped on the name span for the ellipsis.
-    const hedge = item(overlay, 'Hedge Wizard').querySelector<HTMLElement>('.ngv-row-name')!
-    expect(hedge.style.color).not.toBe(fighter.querySelector<HTMLElement>('.ngv-row-name')!.style.color)
+    // darkgrey = not recommended; stamped on the row, inherited by the spans.
+    const hedge = item(overlay, 'Hedge Wizard')
+    expect(hedge.style.color).not.toBe(fighter.style.color)
   })
 
   it('the DEV shape override forces cards / rows and cycles back to auto', () => {
@@ -139,8 +139,9 @@ describe('showNewgameChoice — layout', () => {
     const rapier = item(overlay, 'rapier')
     expect(rapier.className).toContain('ngv-row')
     expect(rapier.querySelector('.ngv-row-suffix')?.textContent).toBe('(+1 apt)')
-    // unarmed has an empty tile array — blank slot keeps the name column aligned
-    expect(item(overlay, 'unarmed').querySelector('.ngv-blank')).toBeTruthy()
+    // unarmed has an empty tile array — the empty fixed-size tile-stack box
+    // still renders, keeping the name column aligned
+    expect(item(overlay, 'unarmed').querySelector('.tile-stack')).toBeTruthy()
   })
 
   it('opens a new step at the top but keeps scroll when the step re-renders', () => {
@@ -254,8 +255,8 @@ describe('showNewgameChoice — interaction', () => {
 
   it('inbound server focus highlights without arming or hiding the shortcuts', () => {
     const { ctx, overlay, sent } = makeCtx()
-    showNewgameChoice(ctx, BG_MSG)
-    applyNewgameFocus(97, false)  // the initial focus the server emits on open
+    const focus = showNewgameChoice(ctx, BG_MSG)
+    focus(97, false)  // the initial focus the server emits on open
     const fighter = item(overlay, 'Fighter')
     expect(fighter.classList.contains('ngv-sel')).toBe(true)
     expect(overlay.querySelector('.ngv-desc')).toBeNull()          // footer still shortcuts
@@ -265,8 +266,8 @@ describe('showNewgameChoice — interaction', () => {
 
   it('ignores from_client echoes while playing', () => {
     const { ctx, overlay } = makeCtx()
-    showNewgameChoice(ctx, BG_MSG)
-    applyNewgameFocus(102, true)
+    const focus = showNewgameChoice(ctx, BG_MSG)
+    focus(102, true)
     expect(item(overlay, 'Berserker').classList.contains('ngv-sel')).toBe(false)
   })
 })
@@ -274,10 +275,10 @@ describe('showNewgameChoice — interaction', () => {
 describe('showNewgameChoice — spectating', () => {
   it('taps are inert and inbound focus (incl. from_client) shows the description', () => {
     const { ctx, overlay, sent } = makeCtx({ spectating: true })
-    showNewgameChoice(ctx, BG_MSG)
+    const focus = showNewgameChoice(ctx, BG_MSG)
     item(overlay, 'Fighter').click()
     expect(sent).toEqual([])
-    applyNewgameFocus(102, true)  // the watched player's own move
+    focus(102, true)  // the watched player's own move
     expect(item(overlay, 'Berserker').classList.contains('ngv-sel')).toBe(true)
     expect(overlay.querySelector('.ngv-desc')?.textContent).toContain('Trog smash.')
     expect(overlay.querySelector('.ngv-desc')?.textContent).not.toContain('Tap again')

@@ -20,12 +20,11 @@
 // (description + tap-again-to-confirm) is strictly a local tap. If focus
 // armed, the initial focus would bury the shortcuts dock and a single
 // stray tap on the pre-focused item would start the game.
-import type { TileLoader } from '../game/tiles/tile-loader'
-import { renderTiles, dollTileSpec, type TileRef, CELL } from '../game/tiles/tile-view'
-import { dcssToHtml, escHtml, uiColor, DCSS_COLOR_MAP } from '../game/dcss-colors'
+import { renderTiles, dollTileSpec } from '../game/tiles/tile-view'
+import { dcssToHtml, escHtml, uiColor } from '../game/dcss-colors'
 import { stripDcss } from './overlay-body'
 import type { OverlayScreenCtx, UiPushMsg } from './game-overlays'
-import { parseGroups, balanceRows, pickShape, toItem, type NgcItem, type NgcGroup, type NgcShape } from './newgame-model'
+import { parseNewgameChoice, balanceRows, toItem, type NgcItem, type NgcShape } from './newgame-model'
 
 // DEV insurance: override the item shape everywhere (see spec "C→B
 // insurance" — every shape must stay one flip away). Driven by
@@ -37,13 +36,12 @@ export function setNewgameShape(shape?: NgcShape | 'auto'): NgcShape | 'auto' {
   return forceShape
 }
 
-// Live focus sink for the current render; game-view's ui-state handler
-// routes type:"newgame-choice" here. Reference parity: lookup is by
-// hotkey across both grids, menu_id ignored (ui-layouts.js:920-929).
-let activeFocus: ((hotkey: number, fromClient: boolean) => void) | null = null
-export function applyNewgameFocus(buttonFocus: number, fromClient: boolean): void {
-  activeFocus?.(buttonFocus, fromClient)
-}
+// Inbound-focus sink for one render, returned by showNewgameChoice.
+// game-view routes ui-state type:"newgame-choice" to the live one and
+// drops it on its overlay teardown seams (enterOverlayLayout/hideOverlay),
+// so a retired render's closure — the DOM tree and item map it holds —
+// can be collected.
+export type NewgameFocusHandler = (hotkey: number, fromClient: boolean) => void
 
 function sendHotkey(ctx: OverlayScreenCtx, hotkey: string | number | undefined): void {
   if (typeof hotkey === 'number') {
@@ -54,15 +52,6 @@ function sendHotkey(ctx: OverlayScreenCtx, hotkey: string | number | undefined):
   } else if (hotkey) {
     ctx.send({ msg: 'input', text: String(hotkey) })
   }
-}
-
-// Effective text color of a wire label ("<darkgrey>i - Artificer"):
-// recommended/restricted state rides in the leading color tag
-// (newgame.cc: white / lightgrey / darkgrey), and the crawl binary never
-// closes tags, so the first tag colors the whole label.
-function labelColor(rawLabel: string): string {
-  const m = /^\s*<(\w+)>/.exec(rawLabel)
-  return (m && DCSS_COLOR_MAP[m[1].toLowerCase()]) || DCSS_COLOR_MAP.lightgrey
 }
 
 // Row sprites at 1.25× the 32px atlas cell: 40px reads as an icon next
@@ -76,15 +65,7 @@ function itemHotkeyAttr(item: NgcItem): string {
     : (item.hotkey ? item.hotkey.charCodeAt(0) : 0))
 }
 
-function spriteOrBlank(loader: TileLoader | null, tiles: TileRef[], scale: number): HTMLElement {
-  if (tiles.length > 0) return renderTiles(loader, tiles, scale)
-  const blank = document.createElement('span')
-  blank.className = 'ngv-blank'
-  blank.style.width = blank.style.height = `${CELL * scale}px`
-  return blank
-}
-
-export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
+export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): NewgameFocusHandler {
   // First call: enterLayout wipes+hides menuControls; the game-view caller
   // rebuilds the Esc bar after us (game-view dispatch), so nothing here
   // may run after that ordering is violated.
@@ -123,14 +104,9 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
   titleEl.appendChild(titleText)
   if (titleText.childElementCount > 0 || msg.doll?.length) wrap.appendChild(titleEl)
 
-  const mainItems = msg['main-items']
   const subItems = msg['sub-items']
-  const groups = mainItems ? parseGroups(mainItems) : []
-  const shape: NgcShape = forceShape === 'auto' ? pickShape(groups, mainItems?.width ?? 1) : forceShape
-  // Each grid has its own menu_id (species-main / species-sub); the
-  // outer_menu_focus mirror must name the grid the armed button lives in.
-  const menuId = (mainItems as { menu_id?: string } | undefined)?.menu_id
-  const subMenuId = (subItems as { menu_id?: string } | undefined)?.menu_id
+  const { groups, shape: autoShape, menuId, subMenuId, stepKey } = parseNewgameChoice(msg)
+  const shape: NgcShape = forceShape === 'auto' ? autoShape : forceShape
 
   // #ui-overlay is reused across pushes, and enterLayout's innerHTML wipe
   // never clamps its scrollTop: the clear and the refill happen in one
@@ -142,7 +118,6 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
   // land where the user left off. The marker lives on the overlay, which
   // outlives the wipe but not the game view, so a fresh view always
   // starts at the top.
-  const stepKey = menuId ?? String(msg.title ?? '')
   if (ctx.overlay.dataset.ngcStep !== stepKey) {
     ctx.overlay.dataset.ngcStep = stepKey
     ctx.overlay.scrollTop = 0
@@ -189,20 +164,21 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
       // white-space:pre on .ngv-action.
       const raw = String(btn.label ?? btn.labels?.[0] ?? '').trimEnd()
       a.innerHTML = dcssToHtml(raw)
-      // text-overflow paints its ellipsis in the BLOCK's color, not the
-      // inner markup span's — without this it comes out as the UA's
-      // buttontext (near-black on the dark dock) instead of brown.
-      a.style.color = labelColor(raw)
       // Same two-tap contract as the main items: first tap arms (outline +
       // the wire description in the footer), second tap sends. A one-tap
       // "! - Random character" or "Tab - <previous character>" next to a
       // two-tap species list was the inconsistency; and these carry
       // descriptions on the wire precisely so a preview can show them.
       const item = toItem(btn)
+      // text-overflow paints its ellipsis in the BLOCK's color, not the
+      // inner markup span's — without this it comes out as the UA's
+      // buttontext (near-black on the dark dock) instead of brown.
+      a.style.color = item.color
       a.dataset.hotkey = itemHotkeyAttr(item)
       a.dataset.menuId = subMenuId ?? ''
       itemByEl.set(a, item)
-      if (!spectating) a.addEventListener('click', () => onItemTap(a, item))
+      // Spectator inertness lives in onItemTap alone — one guard, not two.
+      a.addEventListener('click', () => onItemTap(a, item))
       actions.appendChild(a)
     }
     return actions
@@ -289,31 +265,34 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
   // their identity (and their listeners) across arm/disarm.
   const actions = buildActions()
 
-  // Row = sprite + name. The "a - " hotkey prefix is dropped (touch has
-  // no letters to press; physical keyboards still work via the document
-  // key handler) — the brown sub-item shortcuts below keep theirs, since
-  // the key IS the content there. The white/lightgrey/darkgrey
-  // recommendation colour rides the wire label's leading tag.
-  function buildRow(item: NgcItem): HTMLButtonElement {
-    const row = document.createElement('button')
-    row.className = 'ngv-row'
-    row.dataset.hotkey = itemHotkeyAttr(item)
-    row.appendChild(spriteOrBlank(loader, item.tiles as TileRef[], ROW_SPRITE_SCALE))
+  // Item button = sprite + name (+ aptitude suffix), shared by the row and
+  // card shapes — only class and sprite scale differ. The "a - " hotkey
+  // prefix is dropped (touch has no letters to press; physical keyboards
+  // still work via the document key handler) — the brown sub-item shortcuts
+  // below keep theirs, since the key IS the content there. The
+  // white/lightgrey/darkgrey recommendation colour is stamped on the
+  // button, so the plain-text spans (and the name's ellipsis) inherit it.
+  // An empty tiles array still renders the fixed-size tile-stack box,
+  // keeping the name column aligned (weapon menu: unarmed has no sprite).
+  function buildItem(item: NgcItem, kind: 'row' | 'card'): HTMLButtonElement {
+    const el = document.createElement('button')
+    el.className = `ngv-${kind}`
+    el.dataset.hotkey = itemHotkeyAttr(item)
+    el.style.color = item.color
+    el.appendChild(renderTiles(loader, item.tiles, kind === 'card' ? 2 : ROW_SPRITE_SCALE))
     const name = document.createElement('span')
-    name.className = 'ngv-row-name'
+    name.className = `ngv-${kind}-name`
     name.textContent = item.name
-    name.style.color = labelColor(item.rawLabel)
-    row.appendChild(name)
+    el.appendChild(name)
     if (item.suffix) {
       const suffix = document.createElement('span')
       suffix.className = 'ngv-row-suffix'
       suffix.textContent = item.suffix
-      suffix.style.color = labelColor(item.rawLabel)
-      row.appendChild(suffix)
+      el.appendChild(suffix)
     }
-    itemByEl.set(row, item)
-    row.addEventListener('click', () => onItemTap(row, item))
-    return row
+    itemByEl.set(el, item)
+    el.addEventListener('click', () => onItemTap(el, item))
+    return el
   }
 
   function sectionHeader(label: string, cls = 'ngv-sec-h'): HTMLElement {
@@ -333,19 +312,20 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
     block.className = 'ngv-colblock'
     const strip = document.createElement('div')
     strip.className = 'ngv-strip'
-    const byCol = new Map<number, NgcGroup[]>()
-    for (const g of groups) byCol.set(g.col, [...(byCol.get(g.col) ?? []), g])
-    const cols = [...byCol.keys()].sort((a, b) => a - b)
-    for (const c of cols) {
-      const panel = document.createElement('div')
-      panel.className = 'ngv-col'
-      let first = true
-      for (const g of byCol.get(c)!) {
-        if (g.label) panel.appendChild(sectionHeader(g.label, first ? 'ngv-col-h' : 'ngv-sec-h'))
-        first = false
-        for (const item of g.items) panel.appendChild(buildRow(item))
+    // parseGroups emits groups column-major (x ascending, y order within a
+    // column), so one pass suffices: a column change opens the next panel,
+    // and a labeled group heading an empty panel is the column header.
+    let panel: HTMLElement | null = null
+    let panelCol = -1
+    for (const g of groups) {
+      if (!panel || g.col !== panelCol) {
+        panel = document.createElement('div')
+        panel.className = 'ngv-col'
+        panelCol = g.col
+        strip.appendChild(panel)
       }
-      strip.appendChild(panel)
+      if (g.label) panel.appendChild(sectionHeader(g.label, panel.childElementCount === 0 ? 'ngv-col-h' : 'ngv-sec-h'))
+      for (const item of g.items) panel.appendChild(buildItem(item, 'row'))
     }
     // Swipe offset survives a same-step re-render (ui-pop after ? or %):
     // continuously stashed on the overlay, which outlives the strip.
@@ -359,33 +339,23 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
   // ---- main grid ----
   const grids = document.createElement('div')
   grids.className = 'ngv-groups'
-  if (shape === 'columns') grids.appendChild(buildColumns())
-  for (const group of shape === 'columns' ? [] : groups) {
-    if (group.label) grids.appendChild(sectionHeader(group.label))
-    if (shape === 'cards') {
-      let offset = 0
-      for (const rowSize of balanceRows(group.items.length)) {
-        const row = document.createElement('div')
-        row.className = 'ngv-card-row'
-        for (const item of group.items.slice(offset, offset + rowSize)) {
-          const card = document.createElement('button')
-          card.className = 'ngv-card'
-          card.dataset.hotkey = itemHotkeyAttr(item)
-          card.appendChild(spriteOrBlank(loader, item.tiles as TileRef[], 2))
-          const name = document.createElement('span')
-          name.className = 'ngv-card-name'
-          name.textContent = item.name
-          name.style.color = labelColor(item.rawLabel)
-          card.appendChild(name)
-          itemByEl.set(card, item)
-          card.addEventListener('click', () => onItemTap(card, item))
-          row.appendChild(card)
+  if (shape === 'columns') {
+    grids.appendChild(buildColumns())
+  } else {
+    for (const group of groups) {
+      if (group.label) grids.appendChild(sectionHeader(group.label))
+      if (shape === 'cards') {
+        let offset = 0
+        for (const rowSize of balanceRows(group.items.length)) {
+          const row = document.createElement('div')
+          row.className = 'ngv-card-row'
+          for (const item of group.items.slice(offset, offset + rowSize)) row.appendChild(buildItem(item, 'card'))
+          grids.appendChild(row)
+          offset += rowSize
         }
-        grids.appendChild(row)
-        offset += rowSize
+      } else {
+        for (const item of group.items) grids.appendChild(buildItem(item, 'row'))
       }
-    } else {
-      for (const item of group.items) grids.appendChild(buildRow(item))
     }
   }
   wrap.appendChild(grids)
@@ -413,10 +383,9 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
   // never arms, never hides the shortcuts (own echoes arrive with
   // from_client:true and are skipped, reference parity). Spectating:
   // apply everything incl. from_client:true and show the description.
-  activeFocus = (hotkey, fromClient) => {
-    // Stale render: unhook so the retired closure (and the DOM + item map
-    // it retains) can be collected — there is no other teardown seam.
-    if (!ctx.overlay.contains(dock)) { activeFocus = null; return }
+  // Reference parity: lookup is by hotkey across both grids, menu_id
+  // ignored (ui-layouts.js:920-929).
+  const onFocus: NewgameFocusHandler = (hotkey, fromClient) => {
     if (!spectating && fromClient) return
     const el = ctx.overlay.querySelector<HTMLElement>(`[data-hotkey="${hotkey}"]`)
     if (!el) return
@@ -427,6 +396,7 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
   }
 
   ctx.focusView()
+  return onFocus
 }
 
 // "Do you want to play this combination?" confirm after picking a fully

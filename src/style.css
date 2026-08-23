@@ -3120,10 +3120,17 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 
 .ngv-prompt { color: var(--text); }
 
-.ngv-sec-h {
-  color: #5e78ff;
-  text-align: center;
+/* Shared header voice for the column header (.ngv-col-h below) and the
+   mid-column section labels; the two differ only in size/padding and
+   border alpha. */
+.ngv-sec-h,
+.ngv-col-h {
+  color: #5e78ff;  /* lightblue */
   font-family: var(--font-mono);
+}
+
+.ngv-sec-h {
+  text-align: center;
   font-size: 0.8rem;
   padding: 0.45rem 0 0.2rem;
   border-bottom: 1px solid rgba(94, 120, 255, 0.18);
@@ -3176,12 +3183,11 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   scroll-padding: 0 0.5rem;
 }
 .ngv-strip::-webkit-scrollbar { display: none; }
-.ngv-strip { --ngv-col-min: 11rem; }
 
 .ngv-col {
   flex: 0 0 auto;
   width: max-content;
-  min-width: var(--ngv-col-min);
+  min-width: 11rem;
   max-width: calc(100% - 2.5rem);
   /* start, and nothing pads the strip's end: the scroll range is
      exactly the columns, so the last one simply stops at the right edge
@@ -3195,8 +3201,6 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 /* Column header = the wire's y:0 label, as the reference draws it; mid-
    column labels reuse .ngv-sec-h beneath it. */
 .ngv-col-h {
-  color: #5e78ff;
-  font-family: var(--font-mono);
   font-size: 0.85rem;
   padding: 0.3rem 0.4rem 0.25rem;
   border-bottom: 1px solid rgba(94, 120, 255, 0.25);
@@ -3280,9 +3284,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   white-space: nowrap;
 }
 
-.ngv-row .ngv-row-suffix { margin-left: auto; flex-shrink: 0; }
-
-.ngv-blank { display: inline-block; flex-shrink: 0; }
+.ngv-row-suffix { margin-left: auto; flex-shrink: 0; }
 
 .ngv-card.ngv-sel,
 .ngv-row.ngv-sel,
@@ -3343,10 +3345,11 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 }
 .ngv-hint[hidden] { display: none; }
 
-/* The wire sub-items grid verbatim (--ngv-sub-cols = its width, capped
-   at 2 for phone widths; each entry carries its wire column). Equal
-   tracks keep the key glyphs in two straight gutters; over-long entries
-   ellipsise tail-first, so the "K - " prefix always survives. */
+/* The wire sub-items grid verbatim (.ngv-actions-2 when its wire width
+   is ≥2, capped at 2 for phone widths; each entry carries its wire
+   column). Equal tracks keep the key glyphs in two straight gutters;
+   over-long entries ellipsise tail-first, so the "K - " prefix always
+   survives. */
 /* Footer content holds a readable measure instead of stretching to a
    tablet's full width: at 685px the description ran ~92 characters a
    line and the two shortcut columns bunched against the left edge. */

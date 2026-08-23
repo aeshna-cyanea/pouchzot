@@ -1,8 +1,8 @@
 // Standalone full-screen overlay renderers, split out of game-view.ts:
 // seed-selection plus the msgwin-get-line input dialog, and the shared
-// OverlayScreenCtx + newgame wire types. The newgame-choice grid and
-// newgame-random-combo confirm live in newgame-view.ts (spec:
-// dev-material/newgame-redesign.md). Each screen owns one ui-push type
+// OverlayScreenCtx. The newgame-choice grid and newgame-random-combo
+// confirm live in newgame-view.ts, their wire types in newgame-model.ts
+// (spec: dev-material/newgame-redesign.md). Each screen owns one ui-push type
 // wholesale — none of them share the title/body/actions frame the
 // describe-*/menu overlays get from showUiPush. They build their DOM
 // into ctx.overlay (#ui-overlay) after ctx.enterLayout()/ctx.renderOverlay()
@@ -13,33 +13,7 @@ import type { ClientMsg } from '../ws/types'
 import type { TileLoader } from '../game/tiles/tile-loader'
 import { dcssToHtml } from '../game/dcss-colors'
 import type { SpellBook } from './overlay-body'
-
-export interface NewgameButton {
-  hotkey?: string | number
-  label?: string
-  labels?: string[]
-  x?: number
-  y?: number
-  description?: string
-  highlight_colour?: number
-  tile?: Array<{t: number; tex: number}>
-}
-
-export interface NewgameGridLabel {
-  x: number
-  y: number
-  label: string
-}
-
-export interface NewgameItems {
-  buttons?: NewgameButton[]
-  labels?: NewgameGridLabel[]
-  width?: number
-  height?: number
-  // Per-grid id ("species-main", "weapon-sub", …) — the address for
-  // outer_menu_focus (newgame-view.ts); absent on ancient servers.
-  menu_id?: string
-}
+import type { NewgameItems } from './newgame-model'
 
 export interface UiPushMsg {
   type: string

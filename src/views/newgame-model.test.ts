@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseGroups, balanceRows, pickShape, displayName, toItem } from './newgame-model'
-import type { NewgameItems } from './game-overlays'
+import { parseGroups, balanceRows, pickShape, displayName, toItem, type NewgameItems } from './newgame-model'
 
 // Shorthand builders mirroring the wire shape (CLAUDE.md newgame-choice).
 const btn = (x: number, y: number, label: string, extra: object = {}) => ({
