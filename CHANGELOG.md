@@ -11,6 +11,7 @@ Notable changes to PocketZot, newest first.
 
 ## 2026-08-23
 
+- Redesigned the character creation screens.
 - Fixed a black screen that could occur after resuming an online game that
   opened on the skills screen (saved with no skill left training).
 

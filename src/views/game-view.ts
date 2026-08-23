@@ -41,9 +41,10 @@ import {
 import { SpellHarvester, type SpellEntry } from '../game/spell-harvest'
 import { ChatView } from './chat-view'
 import {
-  showInputDialog, showNewgameChoice, showRandomCombo, showSeedSelection,
+  showInputDialog, showSeedSelection,
   type OverlayScreenCtx, type UiPushMsg,
 } from './game-overlays'
+import { showNewgameChoice, showRandomCombo, setNewgameShape, type NewgameFocusHandler } from './newgame-view'
 
 // Minimal surface of Chromium's CloseWatcher API (absent from TS's DOM lib);
 // used by the Android back handler below. Feature-detected at the single use
@@ -350,6 +351,11 @@ export function buildGameView(
   // save-transfer prompt on resume). Tracked like crtActive so it can't be
   // orphaned if the server proceeds without an explicit hide_dialog.
   let dialogActive = false
+  // Focus sink of the live newgame-choice render (ui-state routing below).
+  // Dropped whenever another render takes the overlay (enterOverlayLayout)
+  // or the overlay closes (hideOverlay), so the retired render's closure —
+  // its DOM tree and item map — doesn't outlive the screen.
+  let newgameFocus: NewgameFocusHandler | null = null
   let crtTag: string | undefined
   // Server tracks a menu stack (open_menu pushes, close_menu pops one,
   // close_all_menus clears). Mirroring it is what lets close_menu restore
@@ -1201,6 +1207,16 @@ export function buildGameView(
   if (import.meta.env.DEV) {
     (window as unknown as { __dcssTiles: (on?: boolean) => void }).__dcssTiles =
       (on) => setRenderMode(on === undefined ? (renderMode === 'tiles' ? 'ascii' : 'tiles') : (on ? 'tiles' : 'ascii'))
+    // __dcssNgcShape(shape?) — override the newgame-choice item shape
+    // ('auto' | 'columns' | 'cards' | 'rows'; no arg cycles). Repaints the
+    // live screen so the toggle is a direct A/B rather than "wait for the
+    // next step"; guarded because restoreTopLayer would otherwise repaint
+    // (or hide) whatever unrelated layer happens to be on top.
+    ;(window as unknown as { __dcssNgcShape: (s?: Parameters<typeof setNewgameShape>[0]) => string }).__dcssNgcShape = (s) => {
+      const shape = setNewgameShape(s)
+      if (uiStack[uiStack.length - 1]?.type === 'newgame-choice') restoreTopLayer()
+      return shape
+    }
     // Spell harvest: __dcssHarvestSpells() fires a silent `I` and fills
     // __dcssSpellCache with the parsed memorised spells.
     ;(window as unknown as { __dcssHarvestSpells: () => void }).__dcssHarvestSpells = () => harvester.harvest()
@@ -1634,6 +1650,15 @@ export function buildGameView(
 
       case 'ui-state': {
         const raw = msg as unknown as Record<string, unknown>
+        // Newgame focus sync arrives as a flat ui-state (outer-menu.cc
+        // scroll_button_into_view): {type:"newgame-choice", button_focus,
+        // from_client, menu_id}. The server emits an initial focus right
+        // after the push and re-emits on server-side arrow navigation.
+        if (raw['type'] === 'newgame-choice') {
+          const focus = raw['button_focus']
+          if (typeof focus === 'number') newgameFocus?.(focus, raw['from_client'] === true)
+          break
+        }
         const text = raw['text'] as string | undefined
         const body = raw['body'] as string | undefined
         const highlight = raw['highlight'] as string | undefined
@@ -2259,7 +2284,9 @@ export function buildGameView(
       // Re-arming on a resumed mid-creation flow is correct — it still ends
       // in a new character.
       sawNewgameChoice = true
-      showNewgameChoice(overlayCtx, msg)
+      // The screen's own enterLayout call has already nulled the previous
+      // handler; store the new render's.
+      newgameFocus = showNewgameChoice(overlayCtx, msg)
       // The creation grid hides the touch controls; played games get the
       // menu-controls bar (Esc) in their place. Spectators get neither.
       if (!spectating) {
@@ -3643,6 +3670,7 @@ export function buildGameView(
     // Whatever renders next isn't (yet) exportable; the exportable show
     // (showUiPush) re-sets this after it has laid content down.
     setExportSource(null)
+    newgameFocus = null
     uiOverlay.innerHTML = ''
     uiOverlay.classList.remove('prompt-menu', 'prompt-menu-alert')
     uiOverlay.classList.toggle('overlay-float', !!opts?.float)
@@ -3687,6 +3715,10 @@ export function buildGameView(
     renderOverlay,
     autoOpenKbd,
     focusView,
+    // Getters, not captured values: `loader` is reassigned on game_client
+    // and `spectating` on transition, both after this ctx is built.
+    getLoader: () => loader,
+    isSpectating: () => !!spectating,
   }
 
   function renderOverlay(title: string, buildBody: () => void, opts?: { float?: boolean }): void {
@@ -3849,6 +3881,7 @@ export function buildGameView(
   function hideOverlay(): void {
     autoCloseKbdIfOurs()
     setExportSource(null)
+    newgameFocus = null
     uiOverlay.style.display = 'none'
     uiOverlay.innerHTML = ''
     uiOverlay.classList.remove('prompt-menu', 'prompt-menu-alert', 'overlay-float')

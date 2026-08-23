@@ -3090,77 +3090,347 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   cursor: default;
 }
 
-/* Newgame choice grid */
-.ngc-wrap {
+/* Newgame choice screen (newgame-view.ts; spec
+   dev-material/newgame-redesign.md). The wire's columns as a horizontal
+   snap strip of full-width panels for species/backgrounds, plain rows for
+   weapons; #ui-overlay is the scroll container, so the footer pins with
+   position:sticky at its bottom. */
+.ngv-wrap {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  /* Grows to the footer so the hint can centre in the leftover space. */
+  flex: 1 0 auto;
 }
 
-.ngc-grid {
-  display: grid;
-  grid-template-columns: repeat(var(--ngc-cols, 3), 1fr);
-  gap: 2px;
-}
-
-.ngc-col-header {
-  font-size: 0.7rem;
-  text-align: center;
-  padding: 0.15rem 0.1rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.ngc-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 2px;
-  color: var(--text);
+.ngv-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-family: var(--font-mono);
-  font-size: 0.78rem;
-  padding: 0.2rem 0.25rem;
-  text-align: left;
-  cursor: pointer;
-  width: 100%;
-  overflow: hidden;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  padding: 0 0.25rem;
+  /* The map screen's title carries literal \n line breaks ("Welcome,
+     crawler.\n\nYou have a choice of maps:") that dcssToHtml passes
+     through — honour them (incl. the deliberate blank line, as the
+     reference renders) instead of running the lines together. */
+  white-space: pre-line;
+}
+
+.ngv-prompt { color: var(--text); }
+
+/* Shared header voice for the column header (.ngv-col-h below) and the
+   mid-column section labels; the two differ only in size/padding and
+   border alpha. */
+.ngv-sec-h,
+.ngv-col-h {
+  color: #5e78ff;  /* lightblue */
+  font-family: var(--font-mono);
+}
+
+.ngv-sec-h {
+  text-align: center;
+  font-size: 0.8rem;
+  padding: 0.45rem 0 0.2rem;
+  border-bottom: 1px solid rgba(94, 120, 255, 0.18);
+  margin-bottom: 0.25rem;
+}
+
+.ngv-groups {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0.4rem;
+}
+
+.ngv-card-row {
+  display: flex;
+  justify-content: center;
+}
+
+/* The column strip. Each panel is as wide as its own longest row
+   ("x - Earth Elementalist" ≈ 230px on trunk) — never a fixed fraction of
+   the screen, which left a black field right of the names — bounded
+   below so a column of short names still reads as a column, and above so
+   the next panel always peeks in at the right edge (the swipe
+   affordance) and a future over-long name ellipsises instead of pushing
+   the strip wider than the phone. A tablet shows all three side by side
+   with nothing to scroll. No page dots: with content-width panels a
+   swipe moves by less than a screen, so "which page" has no answer and
+   the peek is the cue. Full-bleed to the overlay's edges so the first panel's rows
+   start where the title does and a snapped panel isn't inset from the
+   edge it snapped to. Only the strip scrolls horizontally — never the
+   overlay. Vertical scroll, when a column is taller than the screen,
+   stays with #ui-overlay. */
+.ngv-colblock { min-width: 0; }
+
+.ngv-strip {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  /* `visible` is a wish: any non-visible overflow-x makes the other axis
+     clip too, and the selection ring is an OUTLINE painted outside the
+     row's box — so the strip carries 3px of vertical padding for the
+     ring's top/bottom edges to land in (on-device the last row's ring
+     lost its bottom edge at the strip's edge). */
+  overflow-y: visible;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin: 0 -0.5rem;
+  padding: 3px 0.5rem;
+  scroll-padding: 0 0.5rem;
+}
+.ngv-strip::-webkit-scrollbar { display: none; }
+
+.ngv-col {
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 11rem;
+  max-width: calc(100% - 2.5rem);
+  /* start, and nothing pads the strip's end: the scroll range is
+     exactly the columns, so the last one simply stops at the right edge
+     (snapping picks the max offset) instead of parking left-aligned with
+     a void beside it. */
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Column header = the wire's y:0 label, as the reference draws it; mid-
+   column labels reuse .ngv-sec-h beneath it. */
+.ngv-col-h {
+  font-size: 0.85rem;
+  padding: 0.3rem 0.4rem 0.25rem;
+  border-bottom: 1px solid rgba(94, 120, 255, 0.25);
+  margin-bottom: 0.2rem;
   white-space: nowrap;
+  overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.ngc-btn:active { background: rgba(245, 158, 11, 0.15); }
-.ngc-btn.ngc-selected { background: rgba(245, 158, 11, 0.18); border-color: rgba(245, 158, 11, 0.4); }
+.ngv-col .ngv-sec-h { text-align: left; padding-left: 0.4rem; }
 
-.ngc-desc {
+/* Item buttons share the reference's invisible-until-selected outline;
+   the selected color is the wire highlight_colour (set inline as
+   --ngv-sel-color: blue = axis unknown, green = recommended, lightgrey
+   = restricted). It is an inset shadow rather than a border so it costs
+   the layout nothing: in a 4-card row a 12-character name ("Shapeshifter")
+   clears its card by ~1.7px, and a 1px border on each side is enough to
+   push its last letter onto a second line. */
+.ngv-card,
+.ngv-row {
+  background: transparent;
+  border: none;
+  outline: 1px solid transparent;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  padding: 0.3rem 0.15rem;
+}
+
+/* Cards share the row evenly but never exceed a third of it: a 4-card
+   row lands at 25% (the tightest name column), 3- and 2-card rows widen
+   to 33% so balanced short rows still span the full width instead of
+   sitting at a narrower pitch than their neighbours. */
+.ngv-card {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 33.34%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.ngv-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  /* 44px: the sprite is only 32, and a list of 32px rows is a column of
+     sliver tap targets — the exact failure the redesign replaced. */
+  min-height: 44px;
+  width: 100%;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+/* The name is the width-critical part of a card, and the card's own
+   horizontal padding is there for the sprite and the selection border —
+   so let the text have those pixels back. In a 4-card row "Shapeshifter"
+   misses a one-line fit by under a pixel on iOS (whose monospace metrics
+   run a touch wider than desktop WebKit's); an ellipsis there would spend
+   a letter's width to hide a letter. Genuinely long names (Earth
+   Elementalist) still wrap, which is correct — the full name matters when
+   you are picking a background. */
+.ngv-card-name {
+  width: calc(100% + 0.3rem);
+  margin-inline: -0.15rem;
+  /* Names sit centred, so the reclaimed padding is shared either side;
+     the selection ring is inset and overlaps at most a hairline of a
+     name that runs the full width. */
+}
+
+.ngv-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ngv-row-suffix { margin-left: auto; flex-shrink: 0; }
+
+.ngv-card.ngv-sel,
+.ngv-row.ngv-sel,
+.ngv-action.ngv-sel {
+  /* Outline, not border or inset shadow: it costs the layout nothing AND
+     draws outside the box, so a name that runs the card's full width
+     keeps its clearance instead of being crowded by the ring. Cards abut
+     with no gap, but the pixel it borrows from a neighbour is always
+     empty — their names are centred. */
+  outline: 1px solid var(--ngv-sel-color, var(--accent));
+  background: rgba(255, 255, 255, 0.04);
+}
+/* Armed shortcut: the ring hugs a one-line label, so give it a hair of
+   air and a radius; the grid row doesn't move (outline is paint-only). */
+.ngv-action.ngv-sel {
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.ngv-doll { flex-shrink: 0; }
+
+/* The footer: sub-items shortcuts, with the armed item's description
+   above them during the two-tap confirm. Static text on the overlay's own
+   black — no panel, no rule, no shadow (the reference simply ends the
+   popup with the brown shortcut lines). margin-top:auto keeps it at the
+   bottom when the grid is shorter than the screen; sticky keeps the
+   shortcuts reachable on the long single-column lists (weapons, sprint
+   maps), where the column strip doesn't apply. A sticky element is
+   confined to its containing block (the flex CONTENT box), so the overlay
+   drops its bottom padding for this screen and the footer carries it. */
+#ui-overlay:has(> .ngv-foot) { padding-bottom: 0; }
+/* ...and the Esc bar beneath it loses its top rule: the footer is plain
+   text on the same black, so the rule would be the only line on screen. */
+#ui-overlay:has(> .ngv-foot) ~ #menu-controls { border-top-color: transparent; }
+
+.ngv-foot {
+  position: sticky;
+  bottom: 0;
+  margin: auto -0.5rem 0;
+  z-index: 2;
+  background: var(--bg);
+  padding: 0.5rem 0.6rem 0.7rem;
+}
+
+.ngv-hint {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  /* Vertically centred in the slack, but left-aligned on the footer's
+     own text edge — it is the same voice as the shortcut lines below. */
+  justify-content: flex-start;
+  padding: 0.5rem 0.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--text-dim);
+  text-align: left;
+}
+.ngv-hint[hidden] { display: none; }
+
+/* The wire sub-items grid verbatim (.ngv-actions-2 when its wire width
+   is ≥2, capped at 2 for phone widths; each entry carries its wire
+   column). Equal tracks keep the key glyphs in two straight gutters;
+   over-long entries ellipsise tail-first, so the "K - " prefix always
+   survives. */
+/* Footer content holds a readable measure instead of stretching to a
+   tablet's full width: at 685px the description ran ~92 characters a
+   line and the two shortcut columns bunched against the left edge. */
+.ngv-desc,
+.ngv-actions {
+  max-width: 34rem;
+  margin-inline: auto;
+}
+
+.ngv-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 0.3rem;
+  row-gap: 0;
+}
+
+/* Two-column wire grids: the left track takes only what its own entries
+   need (capped at half) rather than a flat 50%, handing the slack to the
+   right track — which is where the long entries live ("Space - Pick
+   background first", "Tab - <previous character>"), so they ellipsise a
+   couple of characters later. Never worse than 50/50: the cap is the
+   fallback when the left entries are the long ones (weapon menu). */
+/* One rule at every width, so nothing jumps as the window narrows.
+   Both tracks are sized to their own content and pushed to opposite
+   edges: the left column's text starts on the block's left edge and the
+   right column's longest line ends on its right edge, spanning the same
+   width as the rule above them. Entries stay left-aligned INSIDE each
+   track, which is what keeps the dashes in a line.
+
+   It degrades continuously because of how grid sizes tracks. Wide: both
+   reach max-content and the leftover becomes the gap. Narrowing: the gap
+   closes to zero. Narrower still: track sizing distributes what's left
+   equally BUT freezes a track at its own max-content and rolls the
+   remainder into the other — so on a phone the left column takes only
+   the width its entries need and the right column, which holds the long
+   ones, gets everything else. That is exactly what an explicit
+   `fit-content(50%) minmax(0, 1fr)` bought (measured identical), without
+   a second rule to snap between. minmax(0, ...) rather than bare
+   max-content so an over-long entry (the Tab shortcut carries a whole
+   character description) shrinks the tracks and ellipsises instead of
+   overflowing the footer. */
+.ngv-actions-2 {
+  grid-template-columns: minmax(0, max-content) minmax(0, max-content);
+  justify-content: space-between;
+}
+
+.ngv-action {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  /* 1.9: ~4px more per row than body text — a taller tap target that
+     still reads as the reference's block of shortcut lines, not a list. */
+  line-height: 1.9;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* pre, not nowrap: the wire label's leading spaces ARE the alignment
+     (see buildActions) and normal white-space processing would eat them. */
+  white-space: pre;
+}
+
+/* Sits above the shortcuts, which are always mounted — so no reserved
+   min-height: the footer grows by the description's own lines when an
+   item is armed and shrinks back when it isn't. Nothing above it moves
+   either way (it is bottom-pinned; the grid scrolls under it). */
+.ngv-desc {
   font-size: 0.75rem;
   line-height: 1.45;
-  padding: 0.4rem 0.5rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 3px;
   color: var(--text);
-  min-height: 3.8em;
+  /* Air, not a rule, between the preview and the menu's own commands —
+     the footer is plain text on the overlay's black. */
+  margin-bottom: 0.5rem;
+  max-height: 30vh;
+  overflow-y: auto;
 }
 
-.ngc-desc-text { color: var(--text-dim); }
-.ngc-confirm-hint { color: var(--text-dim); font-size: 0.7rem; }
-
-.ngc-sub-grid {
-  border-top: 1px solid var(--border);
-  padding-top: 0.25rem;
-}
-
-.ngc-sub-grid .ngc-btn {
-  font-size: 0.75rem;
-}
-
-.ngc-btn .ngc-btn-main {
-  display: inline-block;
-}
-
-.ngc-btn .ngc-btn-suffix {
-  float: right;
-  margin-left: 0.5rem;
-  color: var(--text-dim);
-}
+.ngv-desc .ngv-confirm { color: var(--text-dim); font-size: 0.68rem; }
 
 /* Menu controls (replaces touch controls during menus) */
 #menu-controls {

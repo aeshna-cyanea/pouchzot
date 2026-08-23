@@ -293,3 +293,8 @@ export type ClientMsg =
   | { msg: 'menu_scroll'; first: number; last: number; hover: number }
   | { msg: 'click_cell'; x: number; y: number; button: 1 | 2 | 3; force?: boolean }
   | { msg: 'formatted_scroller_scroll'; scroll: number }
+  // Newgame-choice focus: moves the server-side OuterMenu cursor so
+  // spectators see our selection. BOTH fields required and type-checked
+  // server-side (tileweb.cc:567 — hotkey must be a number, menu_id a
+  // string; unknown menu_id is a silent no-op).
+  | { msg: 'outer_menu_focus'; hotkey: number; menu_id: string }
