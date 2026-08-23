@@ -100,12 +100,6 @@ describe('toItem / displayName', () => {
     expect(displayName('Verylongword - x')).toBe('Verylongword - x')
   })
 
-  it('detects darkgrey leading markup as dim', () => {
-    expect(toItem(btn(0, 0, '<darkgrey>i - Artificer')).dim).toBe(true)
-    expect(toItem(btn(0, 0, '<w>a</w> - Fighter')).dim).toBe(false)
-    expect(toItem(btn(0, 0, 'a - Fighter')).dim).toBe(false)
-  })
-
   it('captures the aptitude suffix from a second label', () => {
     const i = toItem({ x: 0, y: 0, hotkey: 97, labels: ['a - rapier', '(+1 apt)'] })
     expect(i.suffix).toBe('(+1 apt)')

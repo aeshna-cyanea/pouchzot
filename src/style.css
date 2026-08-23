@@ -3111,6 +3111,11 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   font-size: 0.85rem;
   line-height: 1.35;
   padding: 0 0.25rem;
+  /* The map screen's title carries literal \n line breaks ("Welcome,
+     crawler.\n\nYou have a choice of maps:") that dcssToHtml passes
+     through — honour them (incl. the deliberate blank line, as the
+     reference renders) instead of running the lines together. */
+  white-space: pre-line;
 }
 
 .ngv-prompt { color: var(--text); }
@@ -3185,7 +3190,6 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   scroll-snap-align: start;
   display: flex;
   flex-direction: column;
-  min-width: 0;
 }
 
 /* Column header = the wire's y:0 label, as the reference draws it; mid-

@@ -22,9 +22,6 @@ export interface NgcItem {
   // Second label entry (weapon menu aptitude column, e.g. "(+2 apt)").
   suffix: string
   description: string
-  // Effective label color is darkgrey = not recommended for the current
-  // selection; dims text and sprite.
-  dim: boolean
   highlightColour: number | undefined
   tiles: Array<{ t: number; tex: number; ymax?: number }>
 }
@@ -39,12 +36,6 @@ export interface NgcGroup {
 
 export type NgcShape = 'columns' | 'cards' | 'rows'
 
-// Leading color tag of a DCSS-markup string, or null when text precedes
-// any tag (i.e. the default color applies).
-function leadingColor(label: string): string | null {
-  const m = /^\s*<(\w+)>/.exec(label)
-  return m ? m[1].toLowerCase() : null
-}
 
 // Strip the "K - " hotkey-display prefix the server bakes into labels
 // ("a - Gnoll", "A - Mummy"). Only a single short token counts — a name
@@ -63,7 +54,6 @@ export function toItem(btn: NewgameButton): NgcItem {
     rawLabel: raw,
     suffix: labels.length >= 2 ? stripDcss(String(labels[1])).trim() : '',
     description: btn.description ?? '',
-    dim: leadingColor(raw) === 'darkgrey',
     highlightColour: btn.highlight_colour,
     tiles: btn.tile ?? [],
   }

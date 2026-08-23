@@ -146,6 +146,11 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
   if (ctx.overlay.dataset.ngcStep !== stepKey) {
     ctx.overlay.dataset.ngcStep = stepKey
     ctx.overlay.scrollTop = 0
+    // The column strip's swipe offset gets the same treatment as
+    // scrollTop, for the same reason — but the strip is rebuilt every
+    // render, so unlike scrollTop it must be stashed here (written by the
+    // strip's scroll listener, reapplied after mount below).
+    delete ctx.overlay.dataset.ngcStripX
   }
 
   // ---- footer ----
@@ -342,6 +347,11 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
       }
       strip.appendChild(panel)
     }
+    // Swipe offset survives a same-step re-render (ui-pop after ? or %):
+    // continuously stashed on the overlay, which outlives the strip.
+    strip.addEventListener('scroll', () => {
+      ctx.overlay.dataset.ngcStripX = String(strip.scrollLeft)
+    }, { passive: true })
     block.appendChild(strip)
     return block
   }
@@ -379,6 +389,14 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
     }
   }
   wrap.appendChild(grids)
+  // Reapply the stashed swipe offset now the strip is in the DOM (setting
+  // scrollLeft pre-mount doesn't stick). Same-step only: a step change
+  // deleted the stash above. Snap re-settles any mid-swipe value.
+  const stripX = ctx.overlay.dataset.ngcStripX
+  if (stripX !== undefined) {
+    const strip = grids.querySelector<HTMLElement>('.ngv-strip')
+    if (strip) strip.scrollLeft = Number(stripX)
+  }
   wrap.appendChild(hint)
 
   // Tap on empty space (between cards, section headers) = cancel the
@@ -396,7 +414,9 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
   // from_client:true and are skipped, reference parity). Spectating:
   // apply everything incl. from_client:true and show the description.
   activeFocus = (hotkey, fromClient) => {
-    if (!ctx.overlay.contains(dock)) return // stale render
+    // Stale render: unhook so the retired closure (and the DOM + item map
+    // it retains) can be collected — there is no other teardown seam.
+    if (!ctx.overlay.contains(dock)) { activeFocus = null; return }
     if (!spectating && fromClient) return
     const el = ctx.overlay.querySelector<HTMLElement>(`[data-hotkey="${hotkey}"]`)
     if (!el) return

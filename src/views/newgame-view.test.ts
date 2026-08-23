@@ -155,6 +155,21 @@ describe('showNewgameChoice — layout', () => {
     expect(overlay.scrollTop).toBe(0)
   })
 
+  it('keeps the strip swipe offset when the step re-renders, drops it on a new step', () => {
+    const { ctx, overlay } = makeCtx()
+    showNewgameChoice(ctx, BG_MSG)
+    const strip = overlay.querySelector<HTMLElement>('.ngv-strip')!
+    strip.scrollLeft = 180
+    strip.dispatchEvent(new Event('scroll'))
+    // ui-pop re-render of the SAME push: the rebuilt strip restores it.
+    showNewgameChoice(ctx, BG_MSG)
+    expect(overlay.querySelector<HTMLElement>('.ngv-strip')!.scrollLeft).toBe(180)
+    // A different step clears the stash (weapon has no strip; a later
+    // columns step must not inherit background's offset).
+    showNewgameChoice(ctx, WEAPON_MSG)
+    expect(overlay.dataset.ngcStripX).toBeUndefined()
+  })
+
   it('renders the doll and prompt in the title block when present', () => {
     const { ctx, overlay } = makeCtx()
     showNewgameChoice(ctx, WEAPON_MSG)
