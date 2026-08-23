@@ -51,6 +51,8 @@ describe('parseGroups', () => {
       ['Warrior', 'Zealot', 'Adventurer', 'Warrior-mage', 'Mage'])
     expect(groups[1].items.map(i => i.name)).toEqual(['Berserker', 'Cinder Acolyte'])
     expect(groups[3].items.map(i => i.name)).toEqual(['Warper'])
+    // Each group remembers its wire column, which the column strip renders by.
+    expect(groups.map(g => g.col)).toEqual([0, 0, 1, 1, 2])
   })
 
   it('an unlabeled grid yields one unlabeled group (weapon menu)', () => {
@@ -127,9 +129,12 @@ describe('balanceRows', () => {
 })
 
 describe('pickShape', () => {
-  const g = (items: object[]) => [{ items: items.map(b => toItem(b as never)) }]
-  it('cards when multi-column, tiles present, and no suffix', () => {
-    expect(pickShape(g([btn(0, 0, 'a - X', { tile: [{ t: 1, tex: 5 }] })]), 3)).toBe('cards')
+  const g = (items: object[]) => [{ col: 0, items: items.map(b => toItem(b as never)) }]
+  it('columns when multi-column and no suffix (species / backgrounds)', () => {
+    expect(pickShape(g([btn(0, 0, 'a - X', { tile: [{ t: 1, tex: 5 }] })]), 3)).toBe('columns')
+  })
+  it('columns even when nothing has a tile (text-only menus, ancient servers)', () => {
+    expect(pickShape(g([btn(0, 0, 'a - X')]), 3)).toBe('columns')
   })
   it('rows for single-column wire grids (weapon and map menus)', () => {
     expect(pickShape(g([btn(0, 0, 'a - Sprint I', { tile: [{ t: 1, tex: 4 }] })]), 1)).toBe('rows')
@@ -139,13 +144,10 @@ describe('pickShape', () => {
       btn(0, 0, 'a - rapier', { tile: [{ t: 1, tex: 4 }], labels: ['a - rapier', '(+1 apt)'] }),
     ]), 2)).toBe('rows')
   })
-  it('rows when nothing has a tile', () => {
-    expect(pickShape(g([btn(0, 0, 'a - X')]), 3)).toBe('rows')
-  })
-  it('cards tolerate individual tile-less items', () => {
+  it('never picks cards on its own', () => {
     expect(pickShape(g([
       btn(0, 0, 'a - X', { tile: [{ t: 1, tex: 5 }] }),
       btn(0, 1, 'b - Y'),
-    ]), 3)).toBe('cards')
+    ]), 3)).not.toBe('cards')
   })
 })

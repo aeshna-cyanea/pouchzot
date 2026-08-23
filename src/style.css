@@ -3091,13 +3091,16 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 }
 
 /* Newgame choice screen (newgame-view.ts; spec
-   dev-material/newgame-redesign.md). Sprite cards in balanced rows for
-   species/backgrounds, rows for weapons; #ui-overlay is the scroll
-   container, so the dock pins with position:sticky at its bottom. */
+   dev-material/newgame-redesign.md). The wire's columns as a horizontal
+   snap strip of full-width panels for species/backgrounds, plain rows for
+   weapons; #ui-overlay is the scroll container, so the footer pins with
+   position:sticky at its bottom. */
 .ngv-wrap {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  /* Grows to the footer so the hint can centre in the leftover space. */
+  flex: 1 0 auto;
 }
 
 .ngv-title {
@@ -3132,6 +3135,74 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   display: flex;
   justify-content: center;
 }
+
+/* The column strip. Each panel is as wide as its own longest row
+   ("x - Earth Elementalist" ≈ 230px on trunk) — never a fixed fraction of
+   the screen, which left a black field right of the names — bounded
+   below so a column of short names still reads as a column, and above so
+   the next panel always peeks in at the right edge (the swipe
+   affordance) and a future over-long name ellipsises instead of pushing
+   the strip wider than the phone. A tablet shows all three side by side
+   with nothing to scroll. No page dots: with content-width panels a
+   swipe moves by less than a screen, so "which page" has no answer and
+   the peek is the cue. Full-bleed to the overlay's edges so the first panel's rows
+   start where the title does and a snapped panel isn't inset from the
+   edge it snapped to. Only the strip scrolls horizontally — never the
+   overlay. Vertical scroll, when a column is taller than the screen,
+   stays with #ui-overlay. */
+.ngv-colblock { min-width: 0; }
+
+.ngv-strip {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  /* `visible` is a wish: any non-visible overflow-x makes the other axis
+     clip too, and the selection ring is an OUTLINE painted outside the
+     row's box — so the strip carries 3px of vertical padding for the
+     ring's top/bottom edges to land in (on-device the last row's ring
+     lost its bottom edge at the strip's edge). */
+  overflow-y: visible;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin: 0 -0.5rem;
+  padding: 3px 0.5rem;
+  scroll-padding: 0 0.5rem;
+}
+.ngv-strip::-webkit-scrollbar { display: none; }
+.ngv-strip { --ngv-col-min: 11rem; }
+
+.ngv-col {
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: var(--ngv-col-min);
+  max-width: calc(100% - 2.5rem);
+  /* start, and nothing pads the strip's end: the scroll range is
+     exactly the columns, so the last one simply stops at the right edge
+     (snapping picks the max offset) instead of parking left-aligned with
+     a void beside it. */
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Column header = the wire's y:0 label, as the reference draws it; mid-
+   column labels reuse .ngv-sec-h beneath it. */
+.ngv-col-h {
+  color: #5e78ff;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  padding: 0.3rem 0.4rem 0.25rem;
+  border-bottom: 1px solid rgba(94, 120, 255, 0.25);
+  margin-bottom: 0.2rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ngv-col .ngv-sec-h { text-align: left; padding-left: 0.4rem; }
 
 /* Item buttons share the reference's invisible-until-selected outline;
    the selected color is the wire highlight_colour (set inline as
@@ -3198,12 +3269,20 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
      name that runs the full width. */
 }
 
-.ngv-row .ngv-row-suffix { margin-left: auto; }
+.ngv-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ngv-row .ngv-row-suffix { margin-left: auto; flex-shrink: 0; }
 
 .ngv-blank { display: inline-block; flex-shrink: 0; }
 
 .ngv-card.ngv-sel,
-.ngv-row.ngv-sel {
+.ngv-row.ngv-sel,
+.ngv-action.ngv-sel {
   /* Outline, not border or inset shadow: it costs the layout nothing AND
      draws outside the box, so a name that runs the card's full width
      keeps its clearance instead of being crowded by the ring. Cards abut
@@ -3212,54 +3291,62 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   outline: 1px solid var(--ngv-sel-color, var(--accent));
   background: rgba(255, 255, 255, 0.04);
 }
+/* Armed shortcut: the ring hugs a one-line label, so give it a hair of
+   air and a radius; the grid row doesn't move (outline is paint-only). */
+.ngv-action.ngv-sel {
+  outline-offset: 2px;
+  border-radius: 3px;
+}
 
 .ngv-doll { flex-shrink: 0; }
 
-/* The pinned dock: sub-items shortcuts by default, the armed item's
-   description during the two-tap confirm. margin-top:auto pins it to
-   the overlay bottom even when the grid is shorter than the screen. */
-/* The dock is full-bleed to the overlay's edges: a sticky element is
-   confined to its containing block (the flex CONTENT box), so as long as
-   #ui-overlay keeps its 0.75rem bottom padding the bar parks that far
-   short of the edge and scrolling cards show through the sliver beneath
-   it — a negative margin does not relax the confinement. So the overlay
-   drops its bottom padding for this screen and the dock carries it. */
-#ui-overlay:has(> .ngv-dock) { padding-bottom: 0; }
+/* The footer: sub-items shortcuts, with the armed item's description
+   above them during the two-tap confirm. Static text on the overlay's own
+   black — no panel, no rule, no shadow (the reference simply ends the
+   popup with the brown shortcut lines). margin-top:auto keeps it at the
+   bottom when the grid is shorter than the screen; sticky keeps the
+   shortcuts reachable on the long single-column lists (weapons, sprint
+   maps), where the column strip doesn't apply. A sticky element is
+   confined to its containing block (the flex CONTENT box), so the overlay
+   drops its bottom padding for this screen and the footer carries it. */
+#ui-overlay:has(> .ngv-foot) { padding-bottom: 0; }
+/* ...and the Esc bar beneath it loses its top rule: the footer is plain
+   text on the same black, so the rule would be the only line on screen. */
+#ui-overlay:has(> .ngv-foot) ~ #menu-controls { border-top-color: transparent; }
 
-.ngv-dock {
+.ngv-foot {
   position: sticky;
   bottom: 0;
   margin: auto -0.5rem 0;
   z-index: 2;
-  background: var(--surface2);
-  border-top: 1px solid var(--border);
-  border-radius: 8px 8px 0 0;
-  padding: 0.35rem 0.6rem 0.7rem;
-  /* Second shadow is a seam sealer, not decoration: at some viewport
-     sizes the sticky bar lands a fraction of a pixel above the overlay's
-     edge (measured 0.031px at 430x932) and antialiasing renders that as a
-     hairline of the scrolled cards behind it. A solid downward shadow
-     fills the crack and is clipped by the scroll container's padding box,
-     so it is invisible whenever there is no crack. */
-  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.5), 0 8px 0 0 var(--surface2);
+  background: var(--bg);
+  padding: 0.5rem 0.6rem 0.7rem;
 }
 
 .ngv-hint {
-  font-size: 0.68rem;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  /* Vertically centred in the slack, but left-aligned on the footer's
+     own text edge — it is the same voice as the shortcut lines below. */
+  justify-content: flex-start;
+  padding: 0.5rem 0.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
   font-style: italic;
   color: var(--text-dim);
-  margin-bottom: 0.15rem;
+  text-align: left;
 }
+.ngv-hint[hidden] { display: none; }
 
 /* The wire sub-items grid verbatim (--ngv-sub-cols = its width, capped
    at 2 for phone widths; each entry carries its wire column). Equal
    tracks keep the key glyphs in two straight gutters; over-long entries
    ellipsise tail-first, so the "K - " prefix always survives. */
-/* Dock content holds a readable measure instead of stretching to a
+/* Footer content holds a readable measure instead of stretching to a
    tablet's full width: at 685px the description ran ~92 characters a
    line and the two shortcut columns bunched against the left edge. */
 .ngv-desc,
-.ngv-hint,
 .ngv-actions {
   max-width: 34rem;
   margin-inline: auto;
@@ -3296,7 +3383,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
    a second rule to snap between. minmax(0, ...) rather than bare
    max-content so an over-long entry (the Tab shortcut carries a whole
    character description) shrinks the tracks and ellipsises instead of
-   overflowing the dock. */
+   overflowing the footer. */
 .ngv-actions-2 {
   grid-template-columns: minmax(0, max-content) minmax(0, max-content);
   justify-content: space-between;
@@ -3308,30 +3395,30 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   padding: 0;
   font-family: var(--font-mono);
   font-size: 0.72rem;
-  line-height: 1.55;
+  /* 1.9: ~4px more per row than body text — a taller tap target that
+     still reads as the reference's block of shortcut lines, not a list. */
+  line-height: 1.9;
   cursor: pointer;
   text-align: left;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   /* pre, not nowrap: the wire label's leading spaces ARE the alignment
-     (see dockShortcuts) and normal white-space processing would eat them. */
+     (see buildActions) and normal white-space processing would eat them. */
   white-space: pre;
 }
 
 /* Sits above the shortcuts, which are always mounted — so no reserved
-   min-height: the dock grows by the description's own lines when an item
-   is armed and shrinks back when it isn't. Nothing above it moves either
-   way (it is bottom-pinned; the grid scrolls under it). */
+   min-height: the footer grows by the description's own lines when an
+   item is armed and shrinks back when it isn't. Nothing above it moves
+   either way (it is bottom-pinned; the grid scrolls under it). */
 .ngv-desc {
   font-size: 0.75rem;
   line-height: 1.45;
   color: var(--text);
-  /* Ruled off from the shortcuts below: one is what you are previewing,
-     the other is the menu's own commands. */
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.3rem;
-  margin-bottom: 0.3rem;
+  /* Air, not a rule, between the preview and the menu's own commands —
+     the footer is plain text on the overlay's black. */
+  margin-bottom: 0.5rem;
   max-height: 30vh;
   overflow-y: auto;
 }

@@ -31,8 +31,13 @@ export interface NgcItem {
 
 export interface NgcGroup {
   label?: string
+  // Wire column the group came from. The column layout renders groups
+  // back into their authored columns; the band layouts ignore it.
+  col: number
   items: NgcItem[]
 }
+
+export type NgcShape = 'columns' | 'cards' | 'rows'
 
 // Leading color tag of a DCSS-markup string, or null when text precedes
 // any tag (i.e. the default color applies).
@@ -45,7 +50,8 @@ function leadingColor(label: string): string | null {
 // ("a - Gnoll", "A - Mummy"). Only a single short token counts — a name
 // containing " - " deeper in is left alone.
 export function displayName(plainLabel: string): string {
-  return plainLabel.replace(/^\S{1,4} - /, '').trim()
+  // Up to 5: the sub-item keys run "*", "Tab", "Bksp", "Space".
+  return plainLabel.replace(/^\S{1,5} - /, '').trim()
 }
 
 export function toItem(btn: NewgameButton): NgcItem {
@@ -84,12 +90,12 @@ export function parseGroups(items: NewgameItems): NgcGroup[] {
     for (const btn of colButtons) {
       const by = btn.y ?? 0
       while (li < colLabels.length && by > colLabels[li].y) {
-        current = { label: stripDcss(colLabels[li].label).trim(), items: [] }
+        current = { label: stripDcss(colLabels[li].label).trim(), col: x, items: [] }
         groups.push(current)
         li++
       }
       if (!current) {
-        current = { items: [] }
+        current = { col: x, items: [] }
         groups.push(current)
       }
       current.items.push(toItem(btn))
@@ -110,16 +116,17 @@ export function balanceRows(n: number, max = 4): number[] {
   return Array.from({ length: rows }, (_, i) => base + (i < extra ? 1 : 0))
 }
 
-// Cards for tile-bearing multi-column menus (species, backgrounds); rows
-// for everything the desktop already laid out as a single-column list
-// (weapon menu width 1, sprint/tutorial map menu width 1 — their names
-// are long and their suffixes want a row), whenever a suffix column
-// exists, or when nothing carries a tile (text-only menus, ancient
-// servers). A partially tiled card set still gets cards — items without
-// a tile render a blank sprite slot.
-export function pickShape(groups: NgcGroup[], width = 1): 'cards' | 'rows' {
+// Columns — the reference's own multi-column grid, one swipeable panel
+// per wire column — for every multi-column menu (species, backgrounds).
+// Rows for everything the desktop already laid out as a single-column
+// list (weapon menu width 1, sprint/tutorial map menu width 1 — their
+// names are long and their suffixes want a row) and whenever a suffix
+// column exists. Cards (sprite-forward balanced rows) are never picked
+// automatically any more; they remain one flip away via the DEV shape
+// override (newgame-view.ts setNewgameShape).
+export function pickShape(groups: NgcGroup[], width = 1): NgcShape {
   const items = groups.flatMap(g => g.items)
   if (items.length === 0 || width <= 1) return 'rows'
   if (items.some(i => i.suffix)) return 'rows'
-  return items.some(i => i.tiles.length > 0) ? 'cards' : 'rows'
+  return 'columns'
 }

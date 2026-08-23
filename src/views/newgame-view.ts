@@ -1,13 +1,18 @@
 // Newgame-choice screen (species / background / weapon / sprint-map
 // select). Spec + traced wire facts: dev-material/newgame-redesign.md.
 //
-// Layout: the desktop 3-column grid reflows into vertical labeled section
-// bands (newgame-model.ts parseGroups). Tile-bearing single-label menus
-// render as sprite cards in balanced rows; suffix-label menus (weapon
-// aptitudes) and text-only menus render as rows. A pinned bottom dock
-// holds the sub-items shortcuts (the enter-and-repeat flow: Tab / ! / +
-// must never require scrolling a 2.5-screen list) and swaps to the
-// armed item's description during the two-tap confirm.
+// Layout: the reference's multi-column grid kept as-is in shape, but each
+// wire column is a full-width panel in a horizontally swipeable,
+// snap-scrolling strip (newgame-model.ts parseGroups keeps the column
+// index) — rows get a phone's whole width instead of a third of it, so
+// sprite + "a - Gnoll" + full name fit without shrinking. Mid-column
+// labels (Zealot, Warrior-mage) stay in their column as sub-headers.
+// Suffix-label menus (weapon aptitudes) and single-column menus render
+// as plain rows. The sub-items shortcuts sit in a static footer on the
+// overlay's own black, pinned only so the long single-column lists keep
+// Bksp/random reachable; the armed item's description appears above
+// them during the two-tap confirm. Cards (sprite-forward balanced rows,
+// the earlier design) survive behind the DEV shape override only.
 //
 // Focus vs arming are distinct states on purpose: the server emits an
 // initial button_focus right after the push and re-emits on server-side
@@ -20,14 +25,16 @@ import { renderTiles, dollTileSpec, type TileRef, CELL } from '../game/tiles/til
 import { dcssToHtml, escHtml, uiColor, DCSS_COLOR_MAP } from '../game/dcss-colors'
 import { stripDcss } from './overlay-body'
 import type { OverlayScreenCtx, UiPushMsg } from './game-overlays'
-import { parseGroups, balanceRows, pickShape, type NgcItem } from './newgame-model'
+import { parseGroups, balanceRows, pickShape, toItem, type NgcItem, type NgcGroup, type NgcShape } from './newgame-model'
 
-// DEV insurance: force the row item-shape everywhere (the B fallback of
-// the bakeoff — see spec "C→B insurance"). Toggled by __dcssNgcRows().
-let forceRows = false
-export function setNewgameRows(on?: boolean): boolean {
-  forceRows = on ?? !forceRows
-  return forceRows
+// DEV insurance: override the item shape everywhere (see spec "C→B
+// insurance" — every shape must stay one flip away). Driven by
+// __dcssNgcShape(); undefined cycles auto → columns → cards → rows.
+const SHAPE_CYCLE: Array<NgcShape | 'auto'> = ['auto', 'columns', 'cards', 'rows']
+let forceShape: NgcShape | 'auto' = 'auto'
+export function setNewgameShape(shape?: NgcShape | 'auto'): NgcShape | 'auto' {
+  forceShape = shape ?? SHAPE_CYCLE[(SHAPE_CYCLE.indexOf(forceShape) + 1) % SHAPE_CYCLE.length]
+  return forceShape
 }
 
 // Live focus sink for the current render; game-view's ui-state handler
@@ -57,6 +64,11 @@ function labelColor(rawLabel: string): string {
   const m = /^\s*<(\w+)>/.exec(rawLabel)
   return (m && DCSS_COLOR_MAP[m[1].toLowerCase()]) || DCSS_COLOR_MAP.lightgrey
 }
+
+// Row sprites at 1.25× the 32px atlas cell: 40px reads as an icon next
+// to 0.85rem text where 32px read as an afterthought. Fractional scales
+// are fine (tile-view positions by CELL * scale).
+const ROW_SPRITE_SCALE = 1.25
 
 function itemHotkeyAttr(item: NgcItem): string {
   return String(typeof item.hotkey === 'number'
@@ -114,8 +126,11 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
   const mainItems = msg['main-items']
   const subItems = msg['sub-items']
   const groups = mainItems ? parseGroups(mainItems) : []
-  const shape = forceRows ? 'rows' : pickShape(groups, mainItems?.width ?? 1)
+  const shape: NgcShape = forceShape === 'auto' ? pickShape(groups, mainItems?.width ?? 1) : forceShape
+  // Each grid has its own menu_id (species-main / species-sub); the
+  // outer_menu_focus mirror must name the grid the armed button lives in.
   const menuId = (mainItems as { menu_id?: string } | undefined)?.menu_id
+  const subMenuId = (subItems as { menu_id?: string } | undefined)?.menu_id
 
   // #ui-overlay is reused across pushes, and enterLayout's innerHTML wipe
   // never clamps its scrollTop: the clear and the refill happen in one
@@ -133,13 +148,13 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
     ctx.overlay.scrollTop = 0
   }
 
-  // ---- dock (pinned) ----
+  // ---- footer ----
   // The shortcuts are ALWAYS mounted; arming an item only adds its
   // description above them. An earlier revision swapped the two — which
   // stranded the shortcuts behind a tap on whatever empty space the user
   // could find, and the reference shows both at once anyway.
   const dock = document.createElement('div')
-  dock.className = 'ngv-dock'
+  dock.className = 'ngv-foot'
 
   function buildActions(): HTMLElement {
     const actions = document.createElement('div')
@@ -173,36 +188,45 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
       // inner markup span's — without this it comes out as the UA's
       // buttontext (near-black on the dark dock) instead of brown.
       a.style.color = labelColor(raw)
-      if (!spectating) {
-        a.addEventListener('click', () => {
-          sendHotkey(ctx, btn.hotkey)
-          ctx.focusView()
-        })
-      }
+      // Same two-tap contract as the main items: first tap arms (outline +
+      // the wire description in the footer), second tap sends. A one-tap
+      // "! - Random character" or "Tab - <previous character>" next to a
+      // two-tap species list was the inconsistency; and these carry
+      // descriptions on the wire precisely so a preview can show them.
+      const item = toItem(btn)
+      a.dataset.hotkey = itemHotkeyAttr(item)
+      a.dataset.menuId = subMenuId ?? ''
+      itemByEl.set(a, item)
+      if (!spectating) a.addEventListener('click', () => onItemTap(a, item))
       actions.appendChild(a)
     }
     return actions
   }
 
-  // Built once and re-parented on every dock render, so the shortcut
-  // buttons keep their identity (and their listeners) across arm/disarm.
-  const actions = buildActions()
+  // The standing tap hint lives in the slack between the columns and the
+  // footer (a flex spacer in the wrap), centred in whatever space the
+  // screen leaves — not in the footer, where it read as a footer heading.
+  // Shown only while nothing is armed; the armed description takes over
+  // in the footer.
+  const hint = document.createElement('div')
+  hint.className = 'ngv-hint'
+  hint.textContent = spectating ? '' : 'Tap to preview, tap again to confirm.'
 
-  // item = the armed item's description, null = the standing tap hint.
-  // The shortcuts follow either way.
+  // item = the armed item's description above the shortcuts, null = just
+  // the shortcuts (and the hint back in the gap).
   function renderDock(item: NgcItem | null): void {
-    const head = document.createElement('div')
+    hint.hidden = item !== null
     if (item) {
+      const head = document.createElement('div')
       head.className = 'ngv-desc'
       head.innerHTML =
         `<strong>${escHtml(item.name)}</strong>` +
         (item.description ? `<br>${escHtml(item.description)}` : '') +
         (spectating ? '' : '<br><em class="ngv-confirm">Tap again to confirm.</em>')
+      dock.replaceChildren(head, actions)
     } else {
-      head.className = 'ngv-hint'
-      head.textContent = spectating ? '' : 'Tap to preview, tap again to confirm.'
+      dock.replaceChildren(actions)
     }
-    dock.replaceChildren(head, actions)
   }
 
   // ---- selection state (all local to this render; restoreTopLayer
@@ -220,6 +244,11 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
       // emits 1 blue / 2 green / 7 lightgrey).
       el.style.setProperty('--ngv-sel-color', uiColor(item?.highlightColour ?? 15))
       el.classList.add('ngv-sel')
+      // Server-driven focus (initial focus, arrow keys, the watched
+      // player's cursor) may land in a column the strip has scrolled
+      // off — bring it in. 'nearest' on both axes so a focus already on
+      // screen moves nothing. Guarded: happy-dom lacks it.
+      el.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
     }
   }
 
@@ -240,23 +269,89 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
     setHighlight(el)
     renderDock(item)
     // Mirror our cursor to spectators. Server type-checks both fields;
-    // skip when the push carried no menu_id (ancient servers).
-    if (typeof item.hotkey === 'number' && menuId) {
-      ctx.send({ msg: 'outer_menu_focus', hotkey: item.hotkey, menu_id: menuId })
+    // skip when the push carried no menu_id (ancient servers). Sub-item
+    // buttons stamp their own grid's id (data-menu-id); main items use
+    // the main grid's.
+    const gridId = el.dataset.menuId ?? menuId
+    if (typeof item.hotkey === 'number' && gridId) {
+      ctx.send({ msg: 'outer_menu_focus', hotkey: item.hotkey, menu_id: gridId })
     }
     ctx.focusView()
+  }
+
+  // Built once (after the selection state it registers into) and
+  // re-parented on every footer render, so the shortcut buttons keep
+  // their identity (and their listeners) across arm/disarm.
+  const actions = buildActions()
+
+  // Row = sprite + name. The "a - " hotkey prefix is dropped (touch has
+  // no letters to press; physical keyboards still work via the document
+  // key handler) — the brown sub-item shortcuts below keep theirs, since
+  // the key IS the content there. The white/lightgrey/darkgrey
+  // recommendation colour rides the wire label's leading tag.
+  function buildRow(item: NgcItem): HTMLButtonElement {
+    const row = document.createElement('button')
+    row.className = 'ngv-row'
+    row.dataset.hotkey = itemHotkeyAttr(item)
+    row.appendChild(spriteOrBlank(loader, item.tiles as TileRef[], ROW_SPRITE_SCALE))
+    const name = document.createElement('span')
+    name.className = 'ngv-row-name'
+    name.textContent = item.name
+    name.style.color = labelColor(item.rawLabel)
+    row.appendChild(name)
+    if (item.suffix) {
+      const suffix = document.createElement('span')
+      suffix.className = 'ngv-row-suffix'
+      suffix.textContent = item.suffix
+      suffix.style.color = labelColor(item.rawLabel)
+      row.appendChild(suffix)
+    }
+    itemByEl.set(row, item)
+    row.addEventListener('click', () => onItemTap(row, item))
+    return row
+  }
+
+  function sectionHeader(label: string, cls = 'ngv-sec-h'): HTMLElement {
+    const h = document.createElement('div')
+    h.className = cls
+    h.textContent = label
+    return h
+  }
+
+  // Columns: one snap panel per wire column, groups rendered back into
+  // their authored column in y order (a column's first label is its
+  // header, later labels are sub-headers). The next panel's edge peeking
+  // in is the swipe affordance (CSS sizes panels to content, bounded so
+  // one never fills the strip).
+  function buildColumns(): HTMLElement {
+    const block = document.createElement('div')
+    block.className = 'ngv-colblock'
+    const strip = document.createElement('div')
+    strip.className = 'ngv-strip'
+    const byCol = new Map<number, NgcGroup[]>()
+    for (const g of groups) byCol.set(g.col, [...(byCol.get(g.col) ?? []), g])
+    const cols = [...byCol.keys()].sort((a, b) => a - b)
+    for (const c of cols) {
+      const panel = document.createElement('div')
+      panel.className = 'ngv-col'
+      let first = true
+      for (const g of byCol.get(c)!) {
+        if (g.label) panel.appendChild(sectionHeader(g.label, first ? 'ngv-col-h' : 'ngv-sec-h'))
+        first = false
+        for (const item of g.items) panel.appendChild(buildRow(item))
+      }
+      strip.appendChild(panel)
+    }
+    block.appendChild(strip)
+    return block
   }
 
   // ---- main grid ----
   const grids = document.createElement('div')
   grids.className = 'ngv-groups'
-  for (const group of groups) {
-    if (group.label) {
-      const h = document.createElement('div')
-      h.className = 'ngv-sec-h'
-      h.textContent = group.label
-      grids.appendChild(h)
-    }
+  if (shape === 'columns') grids.appendChild(buildColumns())
+  for (const group of shape === 'columns' ? [] : groups) {
+    if (group.label) grids.appendChild(sectionHeader(group.label))
     if (shape === 'cards') {
       let offset = 0
       for (const rowSize of balanceRows(group.items.length)) {
@@ -280,30 +375,11 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): void {
         offset += rowSize
       }
     } else {
-      for (const item of group.items) {
-        const row = document.createElement('button')
-        row.className = 'ngv-row'
-        row.dataset.hotkey = itemHotkeyAttr(item)
-        row.appendChild(spriteOrBlank(loader, item.tiles as TileRef[], 1))
-        const name = document.createElement('span')
-        name.className = 'ngv-row-name'
-        name.textContent = item.name
-        name.style.color = labelColor(item.rawLabel)
-        row.appendChild(name)
-        if (item.suffix) {
-          const suffix = document.createElement('span')
-          suffix.className = 'ngv-row-suffix'
-          suffix.textContent = item.suffix
-          suffix.style.color = labelColor(item.rawLabel)
-          row.appendChild(suffix)
-        }
-        itemByEl.set(row, item)
-        row.addEventListener('click', () => onItemTap(row, item))
-        grids.appendChild(row)
-      }
+      for (const item of group.items) grids.appendChild(buildRow(item))
     }
   }
   wrap.appendChild(grids)
+  wrap.appendChild(hint)
 
   // Tap on empty space (between cards, section headers) = cancel the
   // two-tap arm and bring the shortcuts back.

@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest'
 import type { ClientMsg } from '../ws/types'
 import type { OverlayScreenCtx, UiPushMsg } from './game-overlays'
-import { showNewgameChoice, showRandomCombo, applyNewgameFocus } from './newgame-view'
+import { showNewgameChoice, showRandomCombo, applyNewgameFocus, setNewgameShape } from './newgame-view'
 
 // Same inert ctx contract as game-overlays.test.ts, plus the loader and
 // spectating knobs the newgame screen consumes.
@@ -92,20 +92,45 @@ const item = (overlay: HTMLElement, name: string) =>
     .find(b => b.textContent?.includes(name))!
 
 describe('showNewgameChoice — layout', () => {
-  it('hides touch controls, renders labeled sections column-major incl. mid-grid labels', () => {
+  it('hides touch controls, renders one strip panel per wire column with mid-column sub-headers', () => {
     const { ctx, overlay, calls } = makeCtx()
     showNewgameChoice(ctx, BG_MSG)
     expect(calls.enterLayout).toEqual([{ touch: false }])
-    const headers = [...overlay.querySelectorAll('.ngv-sec-h')].map(h => h.textContent)
-    expect(headers).toEqual(['Warrior', 'Zealot', 'Mage'])
+    const panels = [...overlay.querySelectorAll('.ngv-strip > .ngv-col')]
+    expect(panels).toHaveLength(2)
+    expect(panels.map(p => p.querySelector('.ngv-col-h')?.textContent)).toEqual(['Warrior', 'Mage'])
+    // Zealot stays inside column 0, beneath Fighter and above Berserker.
+    const col0 = [...panels[0].children].map(c => c.textContent?.trim())
+    expect(col0).toEqual(['Warrior', 'Fighter', 'Zealot', 'Berserker'])
   })
 
-  it('renders tile-bearing single-label menus as cards without hotkey letters', () => {
+  it('rows show the name without the hotkey letter, in the recommendation colour', () => {
     const { ctx, overlay } = makeCtx()
     showNewgameChoice(ctx, BG_MSG)
     const fighter = item(overlay, 'Fighter')
-    expect(fighter.className).toContain('ngv-card')
-    expect(fighter.textContent).not.toContain('a - ')
+    expect(fighter.className).toContain('ngv-row')
+    expect(fighter.querySelector('.ngv-row-name')?.textContent).toBe('Fighter')
+    // darkgrey = not recommended; stamped on the name span for the ellipsis.
+    const hedge = item(overlay, 'Hedge Wizard').querySelector<HTMLElement>('.ngv-row-name')!
+    expect(hedge.style.color).not.toBe(fighter.querySelector<HTMLElement>('.ngv-row-name')!.style.color)
+  })
+
+  it('the DEV shape override forces cards / rows and cycles back to auto', () => {
+    const { ctx, overlay } = makeCtx()
+    try {
+      expect(setNewgameShape('cards')).toBe('cards')
+      showNewgameChoice(ctx, BG_MSG)
+      expect(item(overlay, 'Fighter').className).toContain('ngv-card')
+      expect(item(overlay, 'Fighter').textContent).not.toContain('a - ')
+      expect(overlay.querySelector('.ngv-strip')).toBeNull()
+      setNewgameShape('rows')
+      showNewgameChoice(ctx, BG_MSG)
+      expect(overlay.querySelector('.ngv-strip')).toBeNull()
+      expect(item(overlay, 'Fighter').className).toContain('ngv-row')
+      expect(setNewgameShape()).toBe('auto')
+    } finally {
+      setNewgameShape('auto')
+    }
   })
 
   it('renders suffix-label menus (weapons) as rows with the aptitude column', () => {
@@ -139,7 +164,7 @@ describe('showNewgameChoice — layout', () => {
 })
 
 describe('showNewgameChoice — interaction', () => {
-  it('two-tap confirm: arm previews in the dock + mirrors focus, second tap sends', () => {
+  it('two-tap confirm: arm previews in the footer + mirrors focus, second tap sends', () => {
     const { ctx, overlay, sent } = makeCtx()
     showNewgameChoice(ctx, BG_MSG)
     const fighter = item(overlay, 'Fighter')
@@ -179,18 +204,26 @@ describe('showNewgameChoice — interaction', () => {
     expect(sent.filter(m => m.msg === 'input')).toEqual([])
   })
 
-  it('action shortcuts send on a single tap, non-printables via {key,keycode}', () => {
+  it('action shortcuts follow the same two-tap contract, mirroring focus with the SUB grid id', () => {
     const { ctx, overlay, sent } = makeCtx()
     showNewgameChoice(ctx, BG_MSG)
     const actions = [...overlay.querySelectorAll<HTMLButtonElement>('.ngv-action')]
     expect(actions.map(a => a.textContent)).toEqual([
       'Tab - Gnoll Artificer', '    * - Random background',
     ])
-    actions[0].click()
+    // First tap arms: outline + description headline in the footer, nothing sent yet.
     actions[1].click()
-    expect(sent).toEqual([
-      { msg: 'key', keycode: 9 },
+    expect(actions[1].classList.contains('ngv-sel')).toBe(true)
+    expect(overlay.querySelector('.ngv-desc')?.textContent).toContain('Random background')
+    expect(sent).toEqual([{ msg: 'outer_menu_focus', hotkey: 42, menu_id: 'background-sub' }])
+    // Second tap sends (printable via input). Re-arming another one first sends nothing.
+    actions[1].click()
+    actions[0].click()
+    actions[0].click()
+    expect(sent.slice(1)).toEqual([
       { msg: 'input', text: '*' },
+      { msg: 'outer_menu_focus', hotkey: 9, menu_id: 'background-sub' },
+      { msg: 'key', keycode: 9 }, // non-printable via {key,keycode}
     ])
   })
 
@@ -210,7 +243,7 @@ describe('showNewgameChoice — interaction', () => {
     applyNewgameFocus(97, false)  // the initial focus the server emits on open
     const fighter = item(overlay, 'Fighter')
     expect(fighter.classList.contains('ngv-sel')).toBe(true)
-    expect(overlay.querySelector('.ngv-desc')).toBeNull()          // dock still shortcuts
+    expect(overlay.querySelector('.ngv-desc')).toBeNull()          // footer still shortcuts
     fighter.click()
     expect(sent.filter(m => m.msg === 'input')).toEqual([])        // tap arms, not confirms
   })

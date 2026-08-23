@@ -44,7 +44,7 @@ import {
   showInputDialog, showSeedSelection,
   type OverlayScreenCtx, type UiPushMsg,
 } from './game-overlays'
-import { showNewgameChoice, showRandomCombo, applyNewgameFocus, setNewgameRows } from './newgame-view'
+import { showNewgameChoice, showRandomCombo, applyNewgameFocus, setNewgameShape } from './newgame-view'
 
 // Minimal surface of Chromium's CloseWatcher API (absent from TS's DOM lib);
 // used by the Android back handler below. Feature-detected at the single use
@@ -1201,15 +1201,15 @@ export function buildGameView(
   if (import.meta.env.DEV) {
     (window as unknown as { __dcssTiles: (on?: boolean) => void }).__dcssTiles =
       (on) => setRenderMode(on === undefined ? (renderMode === 'tiles' ? 'ascii' : 'tiles') : (on ? 'tiles' : 'ascii'))
-    // __dcssNgcRows() — force the newgame-choice row item-shape (the "B"
-    // bakeoff fallback). Repaints the live screen so the toggle is a
-    // direct A/B rather than "wait for the next step"; guarded because
-    // restoreTopLayer would otherwise repaint (or hide) whatever
-    // unrelated layer happens to be on top.
-    ;(window as unknown as { __dcssNgcRows: (on?: boolean) => boolean }).__dcssNgcRows = (on) => {
-      const rows = setNewgameRows(on)
+    // __dcssNgcShape(shape?) — override the newgame-choice item shape
+    // ('auto' | 'columns' | 'cards' | 'rows'; no arg cycles). Repaints the
+    // live screen so the toggle is a direct A/B rather than "wait for the
+    // next step"; guarded because restoreTopLayer would otherwise repaint
+    // (or hide) whatever unrelated layer happens to be on top.
+    ;(window as unknown as { __dcssNgcShape: (s?: Parameters<typeof setNewgameShape>[0]) => string }).__dcssNgcShape = (s) => {
+      const shape = setNewgameShape(s)
       if (uiStack[uiStack.length - 1]?.type === 'newgame-choice') restoreTopLayer()
-      return rows
+      return shape
     }
     // Spell harvest: __dcssHarvestSpells() fires a silent `I` and fills
     // __dcssSpellCache with the parsed memorised spells.
