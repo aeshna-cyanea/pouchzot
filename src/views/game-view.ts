@@ -31,7 +31,7 @@ import { ensureDollBaked, isBakeableLoader } from '../game/tiles/avatar-bake'
 import { recordAvatarOutcome, saveAvatar, type AvatarMeta } from '../avatars'
 import { count, countEach } from '../counter'
 import { downloadPackFile } from '../offline/save-transfer'
-import { isOrbPickup, parseRunePickup, parseWinRuneCount } from '../game/rune-messages'
+import { hasOrbLight, isOrbPickup, parseRunePickup, parseWinRuneCount } from '../game/rune-messages'
 import { looksLikeWelcome, welcomeBackground } from '../game/char-label'
 import { getPref, setPref, MONSTER_LIST_MODE_CHANGED_EVENT, RENDER_MODE_CHANGED_EVENT } from '../prefs'
 import {
@@ -1537,6 +1537,11 @@ export function buildGameView(
         inventoryStore.update(msg.inv)
         statsView.update(msg)
         if (msg.status !== undefined) statusView.update(msg.status)
+        // Orb possession from the status light too (see onRunePickup for the
+        // pickup line): backfills characters who already carried it, since a
+        // resume's first player message carries the lights. charMeta is in
+        // the capture sig, so the next map re-saves the entry.
+        if (!spectating && !charMeta.orb && hasOrbLight(msg.status)) charMeta.orb = true
         if (msg.time !== undefined) markLastMsg('turn')
         if (!hudRevealed) {
           hudRevealed = true

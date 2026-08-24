@@ -9,6 +9,17 @@ formatting and HTML chrome differ. Drift is a bug.
 
 Notable changes to PocketZot, newest first.
 
+## 2026-08-24
+
+- Character cards now show the runes a character has collected, and the Orb
+  of Zot once they carry it or escape with it. Dolls on the login shelf, in
+  the crypt, and on the offline save list carry the same as small badges.
+  Runes count from this version on; finished offline games pick theirs up
+  from the morgue.
+- Online character cards now show the score, turns, duration, and god
+  standing as facts instead of opening the result with the score line;
+  wizard and explore-mode games are marked in the headline.
+
 ## 2026-08-23
 
 - Redesigned the character creation screens.

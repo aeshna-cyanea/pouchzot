@@ -35,6 +35,16 @@ export function isOrbPickup(text: string): boolean {
   return text.includes('You pick up the Orb of Zot!')
 }
 
+// The Orb status light (status.cc STATUS_ORB): light_text "Orb" in
+// LIGHTMAGENTA (13) while the player carries it — the backfill for
+// characters who picked it up before this shipped, since the `player`
+// message re-sends the lights on every session. Excluded on purpose: "Orb?"
+// (the charlatan's orb unrandart) and the MAGENTA (5) "Orb" that only means
+// the Orb is loose on this level (orb_limits_translocation).
+export function hasOrbLight(status: readonly { light: string; col?: number }[] | undefined): boolean {
+  return status?.some((s) => s.light === 'Orb' && s.col === 13) ?? false
+}
+
 // The morgue's rune line (output.cc _status_mut_rune_list):
 //   }: 15/15 runes: decaying, slimy, silver, golden, iron, obsidian, icy, bone,
 //   abyssal, demonic, glowing, magical, fiery, dark, gossamer

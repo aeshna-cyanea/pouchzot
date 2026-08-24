@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isOrbPickup, parseMorgueRunes, parseRunePickup, parseWinRuneCount } from './rune-messages'
+import { hasOrbLight, isOrbPickup, parseMorgueRunes, parseRunePickup, parseWinRuneCount } from './rune-messages'
 
 // Blurb shapes derived from hiscores.cc runes_gems_desc + the whitespace-
 // aligned game_ended message format (newline + dot-leader continuation).
@@ -54,6 +54,15 @@ describe('isOrbPickup', () => {
   it('matches the _get_orb line inside a joined same-turn message', () => {
     expect(isOrbPickup('You pick up the Orb of Zot! Zot can harm you no longer.')).toBe(true)
     expect(isOrbPickup('You see here the Orb of Zot.')).toBe(false)
+  })
+})
+
+describe('hasOrbLight', () => {
+  it('accepts only the carried-Orb light, not the loose-Orb or charlatan variants', () => {
+    expect(hasOrbLight([{ light: 'Haste', col: 11 }, { light: 'Orb', col: 13 }])).toBe(true)
+    expect(hasOrbLight([{ light: 'Orb', col: 5 }])).toBe(false)   // Orb loose on the level
+    expect(hasOrbLight([{ light: 'Orb?', col: 13 }])).toBe(false) // charlatan's orb
+    expect(hasOrbLight(undefined)).toBe(false)
   })
 })
 
