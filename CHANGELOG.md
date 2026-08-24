@@ -11,14 +11,14 @@ Notable changes to PocketZot, newest first.
 
 ## 2026-08-24
 
-- Character cards now show the runes a character has collected, and the Orb
-  of Zot once they carry it or escape with it. Dolls on the login shelf, in
-  the crypt, and on the offline save list carry the same as small badges.
-  Runes count from this version on; finished offline games pick theirs up
-  from the morgue.
-- Online character cards now show the score, turns, duration, and god
-  standing as facts instead of opening the result with the score line;
-  wizard and explore-mode games are marked in the headline.
+- Character cards show the runes a character has collected, and the Orb of
+  Zot once they carry it. The dolls on the login shelf, in the crypt, and on
+  the offline save list show the same as small badges. Runes picked up
+  before this version aren't known, except for finished offline games, whose
+  morgues record them.
+- Crypt cards show score, turns, duration, and god standing as separate
+  facts instead of the score line; wizard and explore-mode games are marked
+  in the headline.
 
 ## 2026-08-23
 
