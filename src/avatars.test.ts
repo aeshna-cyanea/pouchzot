@@ -285,6 +285,16 @@ describe('rune collection', () => {
     expect(list[1].runes).toEqual(['golden'])
   })
 
+  it('the Orb, once picked up, survives later captures and the outcome stamp', () => {
+    saveAvatar(rec({ orb: true }), { turn: 5000 })
+    saveAvatar(rec({}), { turn: 5200 })
+    expect(listAllAvatars()[0].orb).toBe(true)
+    saveAvatar(rec({}), { turn: 1 }) // reroll: fresh character, no Orb
+    expect(listAllAvatars()[0].orb).toBeUndefined()
+    recordAvatarOutcome(SLOT, { reason: 'dead' }, { orb: true })
+    expect(listAllAvatars()[0].orb).toBe(true)
+  })
+
   it('the outcome stamp merges runes seen after the last capture', () => {
     saveAvatar(rec({ runes: ['golden'] }), { turn: 5000 })
     recordAvatarOutcome(SLOT, { reason: 'won' }, { runes: ['golden', 'abyssal'] })

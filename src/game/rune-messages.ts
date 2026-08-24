@@ -28,6 +28,13 @@ export function parseRunePickup(text: string): string | null {
   return m ? m[1] : null
 }
 
+// The Orb pickup (items.cc _get_orb: "You pick up the Orb of Zot!", MSGCH_ORB).
+// The Orb can't be dropped, so possession is one-way for the life of the
+// character — no drop line to watch.
+export function isOrbPickup(text: string): boolean {
+  return text.includes('You pick up the Orb of Zot!')
+}
+
 // The morgue's rune line (output.cc _status_mut_rune_list):
 //   }: 15/15 runes: decaying, slimy, silver, golden, iron, obsidian, icy, bone,
 //   abyssal, demonic, glowing, magical, fiery, dark, gossamer

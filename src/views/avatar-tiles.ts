@@ -35,7 +35,7 @@ import { marksFor, wrapWithRuneMarks } from './rune-marks'
 export type DollRecipe = Pick<Avatar, 'doll' | 'mcache' | 'httpBase' | 'version' | 'fp'>
 // What paintAvatars accepts: a recipe, plus the collection when the caller
 // wants rune marks drawn (rune-marks.ts marksFor) — full Avatars carry it.
-export type MarkedRecipe = DollRecipe & Partial<Pick<Avatar, 'runes' | 'outcome'>>
+export type MarkedRecipe = DollRecipe & Partial<Pick<Avatar, 'runes' | 'orb' | 'outcome'>>
 
 export interface PaintOpts {
   signal?: AbortSignal

@@ -63,6 +63,8 @@ export interface AvatarMeta {
                     // mergeRunes: a resume's capture sees no pickup lines,
                     // so a plain overwrite would wipe them. Absent = none
                     // seen since this field shipped, NOT "none collected".
+  orb?: true        // carrying the Orb of Zot (isOrbPickup); one-way — the Orb
+                    // can't be dropped — and kept across captures like runes
 }
 
 // Order-preserving union of rune lists (existing first, then new ones as
@@ -163,6 +165,7 @@ export function saveAvatar(
     // A reroll takes the `else` path and starts from the new capture alone.
     const runes = mergeRunes(cur.runes, entry.runes)
     if (runes) entry.runes = runes
+    if (cur.orb) entry.orb = true
   }
   list.unshift(entry)
   if (list.length > STORE_CAP) list.length = STORE_CAP
@@ -208,6 +211,7 @@ export function recordAvatarOutcome(
   ;(['species', 'title', 'background', 'god', 'xl', 'place', 'depth'] as const).forEach(merge)
   const runes = mergeRunes(cur.runes, meta.runes)
   if (runes) cur.runes = runes
+  if (meta.orb) cur.orb = true
   cur.outcome = { ...outcome, endedAt: Date.now() }
   persist(list)
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseMorgueRunes, parseRunePickup, parseWinRuneCount } from './rune-messages'
+import { isOrbPickup, parseMorgueRunes, parseRunePickup, parseWinRuneCount } from './rune-messages'
 
 // Blurb shapes derived from hiscores.cc runes_gems_desc + the whitespace-
 // aligned game_ended message format (newline + dot-leader continuation).
@@ -47,6 +47,13 @@ describe('parseRunePickup', () => {
     expect(parseRunePickup('You see here the golden rune of Zot.')).toBeNull()
     expect(parseRunePickup('found the golden rune.')).toBeNull()
     expect(parseRunePickup('You now have 3 runes.')).toBeNull()
+  })
+})
+
+describe('isOrbPickup', () => {
+  it('matches the _get_orb line inside a joined same-turn message', () => {
+    expect(isOrbPickup('You pick up the Orb of Zot! Zot can harm you no longer.')).toBe(true)
+    expect(isOrbPickup('You see here the Orb of Zot.')).toBe(false)
   })
 })
 

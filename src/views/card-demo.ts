@@ -91,6 +91,8 @@ export function buildDemoCards(base: Avatar | null): Array<{ label: string; mode
       model: xlogToCard(parseXlogLine(xlog({ ktyp: 'quitting', tmsg: 'quit the game', urune: '2' })), null, offlineDoll, ['mossy', 'crystalline']) },
     { label: 'Live save · "Last seen", no result line',
       model: avatarToCard(online({ runes: ['serpentine'] })) },
+    { label: 'Live save on the orb run · carrying the Orb, 3 runes',
+      model: avatarToCard(online({ runes: ['serpentine', 'decaying', 'silver'], orb: true, xl: 27, place: 'Depths', depth: 2 })) },
     { label: 'Crypt-modal compact form · win with runes',
       model: avatarToCard(online({ runes: ['golden', 'abyssal'], outcome: { reason: 'won', message: WIN_BLURB, endedAt: Date.now() } })),
       compact: true },
@@ -135,6 +137,7 @@ async function mountDollStrip(host: HTMLElement, base: Avatar | null): Promise<v
     { ...recipe, runes: ALL_RUNES, outcome: { reason: 'won', message: WIN_BLURB, endedAt: 0 } },
     { ...recipe, outcome: { reason: 'won', message: WIZ_BLURB, endedAt: 0 } },
     { ...recipe, outcome: { reason: 'dead', endedAt: 0 } },
+    { ...recipe, orb: true, runes: ['serpentine'] },
   ]
   for (const { strip, scale } of strips) void paintAvatars(strip, dolls, scale, 'crypt-doll')
 }
@@ -149,7 +152,7 @@ export function toggleCardDemo(): void {
   const base = listAllAvatars()[0] ?? null
   const cap0 = document.createElement('div')
   cap0.className = 'card-demo-label'
-  cap0.textContent = 'Doll marks · 1 rune / 3 runes / 15 + Orb / Orb only / plain — shelf and crypt-grid scales'
+  cap0.textContent = 'Doll marks · 1 rune / 3 runes / 15 + Orb / Orb only / plain / live orb run — shelf and crypt-grid scales'
   list.append(cap0)
   void mountDollStrip(list, base)
   for (const { label, model, compact } of buildDemoCards(base)) {

@@ -59,8 +59,10 @@ export interface CharCardModel {
   version?: string           // "0.34.1" / "dcss-0.34"
   origin?: string            // "Local" | server tag ("CAO")
 
+  orb?: boolean              // carrying the Orb (a live save or a death on the orb run) —
+                             // shows the trophy like a win does
   runes?: string[]           // rune adjectives (rune-tiles.ts) — the rune-row line; the
-                             // Orb is implied by result.kind 'won', never listed here.
+                             // Orb is implied by result.kind 'won' / `orb`, never listed here.
                              // Order is the source's: pickup order from the store,
                              // rune_type enum order from a morgue } line
   dump?: DumpRef
@@ -84,7 +86,7 @@ export function renderCharCard(
   // without marks: the body row and the trophy below carry the collection)
   // with the Orb of Zot beneath it on wins, the trophy at the character's
   // feet. A rune-less win keeps the column for the Orb alone.
-  const won = model.result.kind === 'won'
+  const won = model.result.kind === 'won' || model.orb === true
   // The same emptiness test paintAvatars filters on (a recipe whose layers
   // all mask out paints nothing, so it gets no box either).
   const recipeDoll = model.doll && dollTileSpec({ doll: model.doll.doll, mcache: model.doll.mcache }).length > 0 ? model.doll : null
@@ -510,6 +512,7 @@ export function avatarToCard(a: Avatar): CharCardModel {
     origin: local ? 'Local' : serverTag(a.wsUrl),
     dump: o?.dump ? { kind: 'url', href: `${o.dump}.txt` } : undefined,
     runes: a.runes?.length ? [...a.runes] : undefined,
+    orb: a.orb,
     doll: a,
   }
 }

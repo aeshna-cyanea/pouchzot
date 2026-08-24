@@ -20,9 +20,11 @@ export interface RuneMarksSpec { runes: readonly string[]; won: boolean }
 
 // What an avatar-shaped recipe says about its collection; null when there is
 // nothing to mark (the common case — no wrapper is made).
-export function marksFor(a: { runes?: readonly string[]; outcome?: { reason: string } | null } | null | undefined): RuneMarksSpec | null {
+// `won` in the spec means "show the Orb": a finished win, or a live/dead
+// character that picked the Orb up (the orb run itself).
+export function marksFor(a: { runes?: readonly string[]; orb?: boolean; outcome?: { reason: string } | null } | null | undefined): RuneMarksSpec | null {
   const runes = a?.runes ?? []
-  const won = a?.outcome?.reason === 'won'
+  const won = a?.outcome?.reason === 'won' || a?.orb === true
   return runes.length > 0 || won ? { runes, won } : null
 }
 

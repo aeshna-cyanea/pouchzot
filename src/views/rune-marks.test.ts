@@ -15,6 +15,7 @@ describe('marksFor', () => {
     expect(marksFor({ outcome: { reason: 'dead' } })).toBeNull()
     expect(marksFor({ runes: ['golden'] })).toEqual({ runes: ['golden'], won: false })
     expect(marksFor({ outcome: { reason: 'won' } })).toEqual({ runes: [], won: true })
+    expect(marksFor({ orb: true })).toEqual({ runes: [], won: true }) // carrying it counts
   })
 })
 

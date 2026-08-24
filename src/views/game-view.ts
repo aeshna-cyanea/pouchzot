@@ -31,7 +31,7 @@ import { ensureDollBaked, isBakeableLoader } from '../game/tiles/avatar-bake'
 import { recordAvatarOutcome, saveAvatar, type AvatarMeta } from '../avatars'
 import { count, countEach } from '../counter'
 import { downloadPackFile } from '../offline/save-transfer'
-import { parseRunePickup, parseWinRuneCount } from '../game/rune-messages'
+import { isOrbPickup, parseRunePickup, parseWinRuneCount } from '../game/rune-messages'
 import { looksLikeWelcome, welcomeBackground } from '../game/char-label'
 import { getPref, setPref, MONSTER_LIST_MODE_CHANGED_EVENT, RENDER_MODE_CHANGED_EVENT } from '../prefs'
 import {
@@ -348,6 +348,8 @@ export function buildGameView(
   // avatar writers are gated on `spectating`; the counter gates here).
   function onRunePickup(text: string): void {
     if (spectating) return
+    // The Orb rides the same persistence (charMeta → capture/outcome stamp).
+    if (isOrbPickup(text)) charMeta.orb = true
     const rune = parseRunePickup(text)
     if (!rune || runesCounted.has(rune)) return
     runesCounted.add(rune)
