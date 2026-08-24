@@ -28,19 +28,15 @@ export function parseRunePickup(text: string): string | null {
   return m ? m[1] : null
 }
 
-// The Orb pickup (items.cc _get_orb: "You pick up the Orb of Zot!", MSGCH_ORB).
-// The Orb can't be dropped, so possession is one-way for the life of the
-// character — no drop line to watch.
-export function isOrbPickup(text: string): boolean {
-  return text.includes('You pick up the Orb of Zot!')
-}
-
-// The Orb status light (status.cc STATUS_ORB): light_text "Orb" in
-// LIGHTMAGENTA (13) while the player carries it — the backfill for
-// characters who picked it up before this shipped, since the `player`
-// message re-sends the lights on every session. Excluded on purpose: "Orb?"
-// (the charlatan's orb unrandart) and the MAGENTA (5) "Orb" that only means
-// the Orb is loose on this level (orb_limits_translocation).
+// Orb possession from the status light (status.cc STATUS_ORB): light_text
+// "Orb" in LIGHTMAGENTA (13) while the player carries it. The light, not the
+// pickup message, is the source: it's structured, and the `player` message
+// re-sends it every session, so a character who picked the Orb up on
+// another client still shows it here on resume (the pickup line reaches a
+// client once). The Orb can't be dropped, so possession is one-way. Excluded
+// on purpose: "Orb?" (the charlatan's orb unrandart) and the MAGENTA (5)
+// "Orb" that only means the Orb is loose on this level
+// (orb_limits_translocation).
 export function hasOrbLight(status: readonly { light: string; col?: number }[] | undefined): boolean {
   return status?.some((s) => s.light === 'Orb' && s.col === 13) ?? false
 }

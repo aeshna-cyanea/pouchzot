@@ -63,8 +63,9 @@ export interface AvatarMeta {
                     // mergeRunes: a resume's capture sees no pickup lines,
                     // so a plain overwrite would wipe them. Absent = none
                     // seen since this field shipped, NOT "none collected".
-  orb?: true        // carrying the Orb of Zot (isOrbPickup); one-way — the Orb
-                    // can't be dropped — and kept across captures like runes
+  orb?: true        // carrying the Orb of Zot (rune-messages.ts hasOrbLight);
+                    // one-way — the Orb can't be dropped — and kept across
+                    // captures like runes
 }
 
 // Order-preserving union of rune lists (existing first, then new ones as

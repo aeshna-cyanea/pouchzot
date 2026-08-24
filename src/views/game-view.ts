@@ -31,7 +31,7 @@ import { ensureDollBaked, isBakeableLoader } from '../game/tiles/avatar-bake'
 import { recordAvatarOutcome, saveAvatar, type AvatarMeta } from '../avatars'
 import { count, countEach } from '../counter'
 import { downloadPackFile } from '../offline/save-transfer'
-import { hasOrbLight, isOrbPickup, parseRunePickup, parseWinRuneCount } from '../game/rune-messages'
+import { hasOrbLight, parseRunePickup, parseWinRuneCount } from '../game/rune-messages'
 import { looksLikeWelcome, welcomeBackground } from '../game/char-label'
 import { getPref, setPref, MONSTER_LIST_MODE_CHANGED_EVENT, RENDER_MODE_CHANGED_EVENT } from '../prefs'
 import {
@@ -348,8 +348,6 @@ export function buildGameView(
   // avatar writers are gated on `spectating`; the counter gates here).
   function onRunePickup(text: string): void {
     if (spectating) return
-    // The Orb rides the same persistence (charMeta → capture/outcome stamp).
-    if (isOrbPickup(text)) charMeta.orb = true
     const rune = parseRunePickup(text)
     if (!rune || runesCounted.has(rune)) return
     runesCounted.add(rune)
@@ -1537,10 +1535,9 @@ export function buildGameView(
         inventoryStore.update(msg.inv)
         statsView.update(msg)
         if (msg.status !== undefined) statusView.update(msg.status)
-        // Orb possession from the status light too (see onRunePickup for the
-        // pickup line): backfills characters who already carried it, since a
-        // resume's first player message carries the lights. charMeta is in
-        // the capture sig, so the next map re-saves the entry.
+        // Orb possession (rune-messages.ts hasOrbLight — why the light and
+        // not the pickup line). charMeta is in the capture sig, so the next
+        // map re-saves the entry; the outcome stamp merges it too.
         if (!spectating && !charMeta.orb && hasOrbLight(msg.status)) charMeta.orb = true
         if (msg.time !== undefined) markLastMsg('turn')
         if (!hudRevealed) {
