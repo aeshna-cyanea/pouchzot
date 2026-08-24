@@ -315,6 +315,11 @@ describe('renderCharCard', () => {
     // Carrying the Orb (live save, or died on the orb run) earns the trophy too.
     expect(orb({ ...model, orb: true })).toBe(true)
     expect(avatarToCard(makeAvatar({ orb: true })).orb).toBe(true)
+    // Crypt-modal form: same column layout, grid-sized doll, runes still last.
+    const hero = renderCharCard({ ...win, runes: ['golden'] }, { hero: true })
+    expect(hero.classList.contains('char-card-hero')).toBe(true)
+    expect(hero.querySelector('.char-card-doll-col .char-card-orb')).not.toBeNull()
+    expect(hero.querySelector('.char-card-body')?.lastElementChild?.classList.contains('char-card-runes')).toBe(true)
     // Last in the body, under the meta line — a shelf, not a break in the text.
     const body = renderCharCard({ ...model, runes: ['golden'] }).querySelector('.char-card-body')!
     expect(body.lastElementChild?.classList.contains('char-card-runes')).toBe(true)

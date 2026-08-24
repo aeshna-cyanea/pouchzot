@@ -16,9 +16,8 @@ Notable changes to PocketZot, newest first.
   the offline save list show the same as small badges. Runes picked up
   before this version aren't known, except for finished offline games, whose
   morgues record them.
-- Crypt cards show score, turns, duration, and god standing as separate
-  facts instead of the score line; wizard and explore-mode games are marked
-  in the headline.
+- Crypt cards show score, turns, duration, and god standing, with a larger
+  character sprite.
 
 ## 2026-08-23
 

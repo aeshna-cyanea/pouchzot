@@ -65,8 +65,8 @@ export function openAvatarCard(a: Avatar): void {
   backdrop.setAttribute('aria-label', cardHeadline(model))
   const dump = model.dump
   const card = renderCharCard(model, dump?.kind === 'url'
-    ? { onOpen: () => window.open(dump.href, '_blank', 'noopener') }
-    : {})
+    ? { hero: true, onOpen: () => window.open(dump.href, '_blank', 'noopener') }
+    : { hero: true })
   backdrop.append(card)
   // Move focus off the tapped doll into the dialog (same reasoning as the
   // shell's back-button focus): an Esc dismiss must not leave a focus ring

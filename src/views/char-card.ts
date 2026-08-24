@@ -71,16 +71,24 @@ export interface CharCardModel {
 }
 
 const DOLL_SCALE = 1.75 // 56px box — between the login strip (64) and inline row sizes
+// The crypt modal: the doll at the crypt grid's own 80px, so the tapped tile
+// reads as moving into the card. (A 4× centred "hero" doll was tried on
+// device and dropped — it only repeated the grid tile behind the modal,
+// bigger; the modal's room goes to what the grid can't show.)
+const HERO_DOLL_SCALE = 2.5
 
 // Pure, synchronous DOM builder — no store reads. compact drops the stats,
-// meta, and god-rank lines (crypt-grid form); the full card is the list form.
+// meta, and god-rank lines (crypt-grid form); the full card is the list form;
+// hero (the crypt modal) is the full card with the grid-sized doll.
 export function renderCharCard(
   model: CharCardModel,
-  opts: { onOpen?: (dump?: DumpRef) => void; compact?: boolean } = {},
+  opts: { onOpen?: (dump?: DumpRef) => void; compact?: boolean; hero?: boolean } = {},
 ): HTMLElement {
   const card = document.createElement('article')
   card.className = `char-card char-card-k-${model.result.kind}`
   if (opts.compact) card.classList.add('char-card-compact')
+  if (opts.hero) card.classList.add('char-card-hero')
+  const dollScale = opts.hero ? HERO_DOLL_SCALE : DOLL_SCALE
 
   // The doll column: the doll (sidecar image, or the recipe painted live —
   // without marks: the body row and the trophy below carry the collection)
@@ -95,7 +103,7 @@ export function renderCharCard(
     const NO_MARKS = { marks: false }
     if (model.dollUrl) {
       const box = line(col, 'char-card-doll', '')
-      const img = bakedImg(model.dollUrl, DOLL_SCALE)
+      const img = bakedImg(model.dollUrl, dollScale)
       // An undecodable sidecar (a corrupt PNG in an imported pack) must not
       // sit as a permanent broken-image box — fall back to painting the
       // recipe when one came along, else drop the doll box (and the column,
@@ -103,13 +111,13 @@ export function renderCharCard(
       // (paintAvatars' baked path self-heals the same way.)
       img.addEventListener('error', () => {
         img.remove()
-        if (model.doll) void paintAvatars(box, [model.doll], DOLL_SCALE, 'char-card-doll-img', NO_MARKS)
+        if (model.doll) void paintAvatars(box, [model.doll], dollScale, 'char-card-doll-img', NO_MARKS)
         else if (won) box.remove()
         else col.remove()
       })
       box.append(img)
     } else if (recipeDoll) {
-      void paintAvatars(line(col, 'char-card-doll', ''), [recipeDoll], DOLL_SCALE, 'char-card-doll-img', NO_MARKS)
+      void paintAvatars(line(col, 'char-card-doll', ''), [recipeDoll], dollScale, 'char-card-doll-img', NO_MARKS)
     }
     if (won) {
       const orb = renderOrbTrophy(model.doll, opts.compact ? 0.75 : 1)

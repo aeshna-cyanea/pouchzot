@@ -64,7 +64,7 @@ function pureRecipe(a: Avatar): DollRecipe {
   return { doll: a.doll, mcache: a.mcache, httpBase: a.httpBase, version: a.version, fp: a.fp }
 }
 
-export function buildDemoCards(base: Avatar | null): Array<{ label: string; model: CharCardModel; compact?: boolean }> {
+export function buildDemoCards(base: Avatar | null): Array<{ label: string; model: CharCardModel; compact?: boolean; hero?: boolean }> {
   // No real entry to borrow from: a doll-less recipe on the offline pack's
   // coords, so the fallback fixture can never send a request to a live server.
   const recipe: DollRecipe = base ? pureRecipe(base) : { httpBase: '', version: 'local', doll: null, mcache: null }
@@ -93,6 +93,10 @@ export function buildDemoCards(base: Avatar | null): Array<{ label: string; mode
       model: avatarToCard(online({ runes: ['serpentine'] })) },
     { label: 'Live save on the orb run · carrying the Orb, 3 runes',
       model: avatarToCard(online({ runes: ['serpentine', 'decaying', 'silver'], orb: true, xl: 27, place: 'Depths', depth: 2 })) },
+    { label: 'Crypt-modal form · grid-sized doll, Orb beneath, runes last',
+      model: avatarToCard(online({ species: 'Merfolk', title: 'the Intangible', god: 'Cheibriados',
+        runes: ALL_RUNES, outcome: { reason: 'won', message: WIN_BLURB, dump: 'https://crawl.dcss.io/morgue/demo/x', endedAt: Date.now() - 86400e3 } })),
+      hero: true },
     { label: 'Crypt-modal compact form · win with runes',
       model: avatarToCard(online({ runes: ['golden', 'abyssal'], outcome: { reason: 'won', message: WIN_BLURB, endedAt: Date.now() } })),
       compact: true },
@@ -155,12 +159,12 @@ export function toggleCardDemo(): void {
   cap0.textContent = 'Doll marks · 1 rune / 3 runes / 15 + Orb / Orb only / plain / live orb run — shelf and crypt-grid scales'
   list.append(cap0)
   void mountDollStrip(list, base)
-  for (const { label, model, compact } of buildDemoCards(base)) {
+  for (const { label, model, compact, hero } of buildDemoCards(base)) {
     const cap = document.createElement('div')
     cap.className = 'card-demo-label'
     cap.textContent = label
     // onOpen exists only to show the ↗ affordance on dump-bearing cards.
-    list.append(cap, renderCharCard(model, { compact, onOpen: model.dump ? () => {} : undefined }))
+    list.append(cap, renderCharCard(model, { compact, hero, onOpen: model.dump ? () => {} : undefined }))
   }
 }
 
