@@ -58,6 +58,12 @@ function sendHotkey(ctx: OverlayScreenCtx, hotkey: string | number | undefined):
 // to 0.85rem text where 32px read as an afterthought. Fractional scales
 // are fine (tile-view positions by CELL * scale).
 const ROW_SPRITE_SCALE = 1.25
+// Strip panels run three abreast at phone width, and the name column
+// funds every gutter pixel: 28px is the ceiling that kept
+// "Elementalist" on one line on device — 32px clipped it (traced on the
+// superseded newgame-choice-redesign branch; budget notes at .ngv-strip
+// in style.css).
+const COL_SPRITE_SCALE = 0.875
 
 function itemHotkeyAttr(item: NgcItem): string {
   return String(typeof item.hotkey === 'number'
@@ -184,26 +190,22 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): Newgam
     return actions
   }
 
-  // The standing tap hint lives in the slack between the columns and the
-  // footer (a flex spacer in the wrap), centred in whatever space the
-  // screen leaves — not in the footer, where it read as a footer heading.
-  // Shown only while nothing is armed; the armed description takes over
-  // in the footer.
-  const hint = document.createElement('div')
-  hint.className = 'ngv-hint'
-  hint.textContent = spectating ? '' : 'Tap to preview, tap again to confirm.'
-
   // item = the armed item's description above the shortcuts, null = just
-  // the shortcuts (and the hint back in the gap).
+  // the shortcuts (only the instant before the server's initial focus
+  // lands — once anything is armed, something stays armed; there is no
+  // disarmed state, matching the reference where some button is always
+  // focused).
   function renderDock(item: NgcItem | null): void {
-    hint.hidden = item !== null
     if (item) {
       const head = document.createElement('div')
       head.className = 'ngv-desc'
       head.innerHTML =
         `<strong>${escHtml(item.name)}</strong>` +
         (item.description ? `<br>${escHtml(item.description)}` : '') +
-        (spectating ? '' : '<br><em class="ngv-confirm">Tap again to confirm.</em>')
+        // "highlighted item", not "again": the armed state also arises
+        // from server focus (screen open, arrow nav), where no first tap
+        // ever happened.
+        (spectating ? '' : '<br><em class="ngv-confirm">Tap the highlighted item to confirm.</em>')
       dock.replaceChildren(head, actions)
     } else {
       dock.replaceChildren(actions)
@@ -233,12 +235,6 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): Newgam
     }
   }
 
-  function disarm(): void {
-    armedEl = null
-    setHighlight(null)
-    renderDock(null)
-  }
-
   function onItemTap(el: HTMLElement, item: NgcItem): void {
     if (spectating) return
     if (armedEl === el) {
@@ -262,7 +258,7 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): Newgam
 
   // Built once (after the selection state it registers into) and
   // re-parented on every footer render, so the shortcut buttons keep
-  // their identity (and their listeners) across arm/disarm.
+  // their identity (and their listeners) across arm changes.
   const actions = buildActions()
 
   // Item button = sprite + name (+ aptitude suffix), shared by the row and
@@ -274,12 +270,12 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): Newgam
   // button, so the plain-text spans (and the name's ellipsis) inherit it.
   // An empty tiles array still renders the fixed-size tile-stack box,
   // keeping the name column aligned (weapon menu: unarmed has no sprite).
-  function buildItem(item: NgcItem, kind: 'row' | 'card'): HTMLButtonElement {
+  function buildItem(item: NgcItem, kind: 'row' | 'card', spriteScale?: number): HTMLButtonElement {
     const el = document.createElement('button')
     el.className = `ngv-${kind}`
     el.dataset.hotkey = itemHotkeyAttr(item)
     el.style.color = item.color
-    el.appendChild(renderTiles(loader, item.tiles, kind === 'card' ? 2 : ROW_SPRITE_SCALE))
+    el.appendChild(renderTiles(loader, item.tiles, spriteScale ?? (kind === 'card' ? 2 : ROW_SPRITE_SCALE)))
     const name = document.createElement('span')
     name.className = `ngv-${kind}-name`
     name.textContent = item.name
@@ -302,11 +298,12 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): Newgam
     return h
   }
 
-  // Columns: one snap panel per wire column, groups rendered back into
-  // their authored column in y order (a column's first label is its
-  // header, later labels are sub-headers). The next panel's edge peeking
-  // in is the swipe affordance (CSS sizes panels to content, bounded so
-  // one never fills the strip).
+  // Columns: one panel per wire column, groups rendered back into their
+  // authored column in y order (a column's first label is its header,
+  // later labels are sub-headers). Panels split the width evenly so the
+  // whole menu fits one screen wherever the CSS floor allows; when it
+  // can't (a 4-column menu, a very narrow viewport) the strip scrolls
+  // with snap and the cut-off panel at the edge is the swipe cue.
   function buildColumns(): HTMLElement {
     const block = document.createElement('div')
     block.className = 'ngv-colblock'
@@ -325,7 +322,7 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): Newgam
         strip.appendChild(panel)
       }
       if (g.label) panel.appendChild(sectionHeader(g.label, panel.childElementCount === 0 ? 'ngv-col-h' : 'ngv-sec-h'))
-      for (const item of g.items) panel.appendChild(buildItem(item, 'row'))
+      for (const item of g.items) panel.appendChild(buildItem(item, 'row', COL_SPRITE_SCALE))
     }
     // Swipe offset survives a same-step re-render (ui-pop after ? or %):
     // continuously stashed on the overlay, which outlives the strip.
@@ -367,32 +364,48 @@ export function showNewgameChoice(ctx: OverlayScreenCtx, msg: UiPushMsg): Newgam
     const strip = grids.querySelector<HTMLElement>('.ngv-strip')
     if (strip) strip.scrollLeft = Number(stripX)
   }
-  wrap.appendChild(hint)
-
-  // Tap on empty space (between cards, section headers) = cancel the
-  // two-tap arm and bring the shortcuts back.
-  wrap.addEventListener('click', ev => {
-    if (!(ev.target as HTMLElement).closest('[data-hotkey]')) disarm()
-  })
+  // No empty-space disarm: once anything is armed, something stays armed
+  // until the screen changes — the reference's invariant (some button is
+  // always focused; hover moves focus, nothing clears it). The disarm
+  // gesture's original purpose (bring the shortcuts back) died when the
+  // footer started mounting them permanently.
 
   renderDock(null)
   ctx.overlay.appendChild(dock)
 
   // Inbound focus (initial focus on open, server-side arrow nav, the
-  // watched player's moves when spectating). Playing: highlight only —
-  // never arms, never hides the shortcuts (own echoes arrive with
-  // from_client:true and are skipped, reference parity). Spectating:
-  // apply everything incl. from_client:true and show the description.
+  // watched player's moves when spectating). Playing: arms outright —
+  // highlight + footer description, one tap on it confirms. REVERSED
+  // 2026-08-24 from "highlight only, never arm": that rule's shortcut-
+  // burying rationale died with the always-mounted footer, and the
+  // highlight-without-preview it left behind read as broken (armed look,
+  // no description, tap did nothing visible). Showing the preview
+  // without arming is not an option: focused and armed would be visually
+  // identical states with different tap behavior. No outer_menu_focus
+  // send here — the focus CAME from the server; only taps mirror.
+  // Own echoes arrive with from_client:true and are skipped (reference
+  // parity). Spectating: apply everything incl. from_client:true, show
+  // the description, arm nothing (taps are inert anyway).
   // Reference parity: lookup is by hotkey across both grids, menu_id
   // ignored (ui-layouts.js:920-929).
   const onFocus: NewgameFocusHandler = (hotkey, fromClient) => {
     if (!spectating && fromClient) return
     const el = ctx.overlay.querySelector<HTMLElement>(`[data-hotkey="${hotkey}"]`)
     if (!el) return
-    armedEl = null
+    // The initial focus is the engine's saved-defaults pick — the last
+    // STARTED game's choice on this axis (read_startup_prefs; newgame.cc
+    // `defaults.job == job`), species-independent and possibly
+    // restricted, so it can legitimately land on a greyed item the
+    // player never consciously chose (random rolls write their resolved
+    // combo). Display it faithfully and do NOT try to label it: a "last
+    // game" tag was built and dropped same-day 2026-08-24 — the client
+    // can't distinguish saved-default from the first-item fallback, RC-
+    // set defaults, or the map menu's next-after-win advance, and the
+    // resulting sometimes-wrong/sometimes-missing chip read worse than
+    // the unexplained default (dev-material/newgame-redesign.md).
+    armedEl = spectating ? null : el
     setHighlight(el)
-    const item = itemByEl.get(el)
-    renderDock(spectating && item ? item : null)
+    renderDock(itemByEl.get(el) ?? null)
   }
 
   ctx.focusView()

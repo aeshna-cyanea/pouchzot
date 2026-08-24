@@ -3099,7 +3099,8 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  /* Grows to the footer so the hint can centre in the leftover space. */
+  /* Grows to the footer so the footer stays bottom-pinned on short
+     menus. */
   flex: 1 0 auto;
 }
 
@@ -3121,8 +3122,10 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 .ngv-prompt { color: var(--text); }
 
 /* Shared header voice for the column header (.ngv-col-h below) and the
-   mid-column section labels; the two differ only in size/padding and
-   border alpha. */
+   mid-column section labels; the two differ only in size/padding. No
+   underline rules: the reference draws these as bare lightblue text, and
+   with three tight columns a full-width rule per header fused into one
+   notched line across the screen. */
 .ngv-sec-h,
 .ngv-col-h {
   color: #5e78ff;  /* lightblue */
@@ -3133,7 +3136,6 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   text-align: center;
   font-size: 0.8rem;
   padding: 0.45rem 0 0.2rem;
-  border-bottom: 1px solid rgba(94, 120, 255, 0.18);
   margin-bottom: 0.25rem;
 }
 
@@ -3148,25 +3150,35 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   justify-content: center;
 }
 
-/* The column strip. Each panel is as wide as its own longest row
-   ("x - Earth Elementalist" ≈ 230px on trunk) — never a fixed fraction of
-   the screen, which left a black field right of the names — bounded
-   below so a column of short names still reads as a column, and above so
-   the next panel always peeks in at the right edge (the swipe
-   affordance) and a future over-long name ellipsises instead of pushing
-   the strip wider than the phone. A tablet shows all three side by side
-   with nothing to scroll. No page dots: with content-width panels a
-   swipe moves by less than a screen, so "which page" has no answer and
-   the peek is the cue. Full-bleed to the overlay's edges so the first panel's rows
-   start where the title does and a snapped panel isn't inset from the
-   edge it snapped to. Only the strip scrolls horizontally — never the
-   overlay. Vertical scroll, when a column is taller than the screen,
-   stays with #ui-overlay. */
-.ngv-colblock { min-width: 0; }
+/* The column strip. Panels split the width evenly (flex-grow, basis 0)
+   so every wire column fits on one screen wherever the floor allows —
+   3 × 7rem clears a 360px phone — and the strip only actually scrolls
+   when they can't (a 4-column menu, a very narrow viewport), where the
+   min-width forces overflow and the snap behavior takes over as-is. The
+   name column funds every pixel spent between panels: at 402px
+   "Elementalist" clears its line by ~5px with 1px gaps and the compact
+   row metrics below, so don't widen gaps or padding here without
+   re-measuring that word ON DEVICE — iOS falls back to a wider mono
+   face, and desktop WebKit passed a 28px→32px sprite bump that clipped
+   "Fire Elementali…" on a real phone (traced on the superseded
+   newgame-choice-redesign branch, same budget). No page dots: nothing
+   scrolls in the common case, and when it does the cut-off panel at the
+   edge is the cue. Full-bleed to the overlay's edges so the first
+   panel's rows start where the title does and a snapped panel isn't
+   inset from the edge it snapped to. Only the strip scrolls
+   horizontally — never the overlay. Vertical scroll, when a column is
+   taller than the screen, stays with #ui-overlay. */
+.ngv-colblock {
+  min-width: 0;
+  /* Wide-layout queries below measure the strip, not the viewport — a
+     landscape sidebar takes 256-320px of the overlay (same trap as the
+     dock's width note in dev-material/newgame-redesign.md). */
+  container-type: inline-size;
+}
 
 .ngv-strip {
   display: flex;
-  gap: 0.5rem;
+  gap: 1px;
   overflow-x: auto;
   /* `visible` is a wish: any non-visible overflow-x makes the other axis
      clip too, and the selection ring is an OUTLINE painted outside the
@@ -3185,10 +3197,13 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 .ngv-strip::-webkit-scrollbar { display: none; }
 
 .ngv-col {
-  flex: 0 0 auto;
-  width: max-content;
-  min-width: 11rem;
-  max-width: calc(100% - 2.5rem);
+  flex: 1 1 0;
+  /* The floor is what decides fit-vs-scroll (see the strip comment);
+     the cap keeps a lone wide screen from stretching two columns into
+     ~40-character rows, and doubles as the peek bound (100% - 2.5rem)
+     when the strip does scroll. */
+  min-width: 7rem;
+  max-width: min(20rem, 100% - 2.5rem);
   /* start, and nothing pads the strip's end: the scroll range is
      exactly the columns, so the last one simply stops at the right edge
      (snapping picks the max offset) instead of parking left-aligned with
@@ -3203,7 +3218,6 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 .ngv-col-h {
   font-size: 0.85rem;
   padding: 0.3rem 0.4rem 0.25rem;
-  border-bottom: 1px solid rgba(94, 120, 255, 0.25);
   margin-bottom: 0.2rem;
   white-space: nowrap;
   overflow: hidden;
@@ -3286,6 +3300,39 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 
 .ngv-row-suffix { margin-left: auto; flex-shrink: 0; }
 
+/* Rows inside the strip run three abreast at phone width, so they trade
+   the loose single-column metrics for the compact set the superseded
+   newgame-choice-redesign branch validated on device: 28px sprite
+   (COL_SPRITE_SCALE in newgame-view.ts), hairline gap/padding, and
+   names that wrap to two lines instead of ellipsizing — the anywhere
+   break only fires on a single word too long for the column, and
+   "Elementalist" (the longest word on trunk) still fits one line. The
+   44px min-height is untouched: the row, not the sprite, is the tap
+   target. */
+.ngv-col .ngv-row {
+  gap: 0.15rem;
+  padding: 0.2rem 0.1rem;
+}
+.ngv-col .ngv-row-name {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+  font-size: 0.72rem;
+  line-height: 1.15;
+}
+/* Once the strip gives three columns ~14rem each (tablet, landscape
+   with no sidebar eating the overlay), the compact text metrics relax.
+   The sprite stays 28px — it's sized in JS at build, and a fixed sprite
+   beside larger text reads fine where a resized one would need a
+   repaint. */
+@container (min-width: 42rem) {
+  .ngv-col .ngv-row { gap: 0.4rem; padding: 0.2rem 0.3rem; }
+  .ngv-col .ngv-row-name { font-size: 0.85rem; }
+}
+
 .ngv-card.ngv-sel,
 .ngv-row.ngv-sel,
 .ngv-action.ngv-sel {
@@ -3328,22 +3375,6 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   background: var(--bg);
   padding: 0.5rem 0.6rem 0.7rem;
 }
-
-.ngv-hint {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  /* Vertically centred in the slack, but left-aligned on the footer's
-     own text edge — it is the same voice as the shortcut lines below. */
-  justify-content: flex-start;
-  padding: 0.5rem 0.1rem;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-style: italic;
-  color: var(--text-dim);
-  text-align: left;
-}
-.ngv-hint[hidden] { display: none; }
 
 /* The wire sub-items grid verbatim (.ngv-actions-2 when its wire width
    is ≥2, capped at 2 for phone widths; each entry carries its wire

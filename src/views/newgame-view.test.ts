@@ -203,7 +203,7 @@ describe('showNewgameChoice — interaction', () => {
     expect(overlay.querySelectorAll('.ngv-action')).toHaveLength(2)
   })
 
-  it('tapping another item re-arms; tapping empty space disarms back to the hint', () => {
+  it('tapping another item re-arms; empty space never disarms', () => {
     const { ctx, overlay, sent } = makeCtx()
     showNewgameChoice(ctx, BG_MSG)
     item(overlay, 'Fighter').click()
@@ -211,14 +211,16 @@ describe('showNewgameChoice — interaction', () => {
     expect(sent.filter(m => m.msg === 'input')).toEqual([])
     expect(item(overlay, 'Fighter').classList.contains('ngv-sel')).toBe(false)
     expect(item(overlay, 'Berserker').classList.contains('ngv-sel')).toBe(true)
-    // empty-space tap cancels the arm and restores the shortcut actions
+    // Reference invariant: some button is always focused — a stray tap
+    // on a section header must not clear the arm.
     overlay.querySelector<HTMLElement>('.ngv-sec-h')!.click()
-    expect(overlay.querySelector('.ngv-desc')).toBeNull()
-    expect(overlay.querySelectorAll('.ngv-action')).toHaveLength(2)
-    // next tap arms again rather than confirming
+    expect(item(overlay, 'Berserker').classList.contains('ngv-sel')).toBe(true)
+    expect(overlay.querySelector('.ngv-desc')).not.toBeNull()
+    // and the armed item still confirms on its next tap
     item(overlay, 'Berserker').click()
-    expect(sent.filter(m => m.msg === 'input')).toEqual([])
+    expect(sent.filter(m => m.msg === 'input')).toEqual([{ msg: 'input', text: 'f' }])
   })
+
 
   it('action shortcuts follow the same two-tap contract, mirroring focus with the SUB grid id', () => {
     const { ctx, overlay, sent } = makeCtx()
@@ -253,15 +255,17 @@ describe('showNewgameChoice — interaction', () => {
     expect(cols).toEqual(['1', '2'])
   })
 
-  it('inbound server focus highlights without arming or hiding the shortcuts', () => {
+  it('inbound server focus arms: preview in the footer, one tap confirms', () => {
     const { ctx, overlay, sent } = makeCtx()
     const focus = showNewgameChoice(ctx, BG_MSG)
     focus(97, false)  // the initial focus the server emits on open
     const fighter = item(overlay, 'Fighter')
     expect(fighter.classList.contains('ngv-sel')).toBe(true)
-    expect(overlay.querySelector('.ngv-desc')).toBeNull()          // footer still shortcuts
+    expect(overlay.querySelector('.ngv-desc')).not.toBeNull()      // preview shown
+    expect(overlay.querySelector('.ngv-actions')).not.toBeNull()   // shortcuts still mounted
+    expect(sent).toEqual([])                                       // no focus echo back
     fighter.click()
-    expect(sent.filter(m => m.msg === 'input')).toEqual([])        // tap arms, not confirms
+    expect(sent.filter(m => m.msg === 'input')).toEqual([{ msg: 'input', text: 'a' }])
   })
 
   it('ignores from_client echoes while playing', () => {
