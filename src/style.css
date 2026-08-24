@@ -2590,8 +2590,9 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 
 /* Stat / defense state colors (matches reference player.js classes).
    .weapon-corroded uses class-class specificity to override the .fgN
-   color class on the same element (matches reference's #game #stats_weapon
-   .corroded_weapon override). */
+   color class on the same element (matches ≤0.34's #game #stats_weapon
+   .corroded_weapon override; trunk dropped that rule with b51359a412, so
+   stats-view.ts only adds the class on servers without weapon_colour). */
 .stat-boosted, .def-boosted { color: #5e78ff; /* DCSS lightblue (.fg9) */ }
 .stat-zero { color: #ef2929; /* DCSS lightred (.fg12) */ }
 .stat-degenerated { color: #fce94f; /* DCSS yellow (.fg14) — reference degenerated_stat (drained) */ }

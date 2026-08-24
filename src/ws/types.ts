@@ -249,7 +249,15 @@ export interface PlayerMsg {
   doom?: number
   contam?: number
   unarmed_attack?: string
+  // Weapon-line colours by era. ≤0.34: unarmed_attack_colour (form uc_colour)
+  // and the wielded item's inventory col. Trunk (0bed8fcdc9, committed
+  // 2026-07-17): weapon_colour/offhand_weapon_colour computed C++-side
+  // (output.cc wielded_weapon_colour — honours `menu_colour += stats:…`,
+  // refreshed on equip), unarmed_attack_colour dropped. Their PRESENCE is the
+  // era signal stats-view.ts gates on (value 0 is a legitimate colour).
   unarmed_attack_colour?: number
+  weapon_colour?: number
+  offhand_weapon_colour?: number
   weapon_index?: number   // 0.33+
   offhand_index?: number  // 0.33+
   // Pre-0.33: equipment as a slot→inventory-index map (keys are
