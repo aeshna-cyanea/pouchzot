@@ -1,5 +1,6 @@
-// Rune facts parsed from wire text, for the anonymous counters
-// (src/counter.ts). Pure functions so the phrasing contracts are testable
+// Rune facts parsed from game text — wire messages (for the anonymous
+// counters, src/counter.ts, and the crypt's per-character collection) and
+// morgue dumps. Pure functions so the phrasing contracts are testable
 // without the game view. Both phrasings verified identical in 0.34.1 and
 // trunk; a future rewording silently breaks the match, so the tests pin the
 // exact source-derived forms.
@@ -25,4 +26,26 @@ export function parseRunePickup(text: string): string | null {
   const m = text.replace(/<\/?[a-z][^>]*>/gi, '')
     .match(/You pick up the (\w+) rune and feel its power/)
   return m ? m[1] : null
+}
+
+// The morgue's rune line (output.cc _status_mut_rune_list):
+//   }: 15/15 runes: decaying, slimy, silver, golden, iron, obsidian, icy, bone,
+//   abyssal, demonic, glowing, magical, fiery, dark, gossamer
+// linebreak_string wraps it at 80 cols — only at spaces, and the list's
+// spaces all follow commas, so a wrapped chunk always ends with ',' and the
+// next line is its continuation. The list is comma_separated_line(…, ", ",
+// ", ") — the LAST separator is ", " too, so there is no "and" to strip. The
+// line is emitted ONLY when runes were
+// collected (no "0/15" form), so absence = none. The `}` prefix is
+// command_to_string(CMD_DISPLAY_RUNES) — a user keymap can rename it, hence
+// any short prefix. Returns the adjectives in the engine's rune_type enum
+// order (the morgue lists them by enum, not by pickup); an empty list means
+// no rune line.
+export function parseMorgueRunes(text: string): string[] {
+  const lines = text.split('\n')
+  const i = lines.findIndex((l) => /^\S{1,3}: \d+\/\d+ runes?: /.test(l))
+  if (i < 0) return []
+  let list = lines[i].replace(/^\S{1,3}: \d+\/\d+ runes?: /, '').trimEnd()
+  for (let j = i + 1; list.endsWith(',') && j < lines.length; j++) list += ' ' + lines[j].trimEnd()
+  return list.split(',').map((s) => s.trim()).filter(Boolean)
 }

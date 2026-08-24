@@ -24,9 +24,11 @@ const BAKE_KEY = 'pocketzot:avatar-bakes'
 // NUL can't appear in a fingerprint (base36) or the numeric spec hash.
 const SEP = '\x00'
 // Sized for the widest consumer: the offline score list shows up to ~100
-// games, plus the crypt's 20-entry history — at ~1 KB per bake this is still
-// only ~128 KB of localStorage. Insertion-order LRU, oldest-stored evicted.
-const BAKE_CAP = 128
+// games, plus the crypt's 20-entry history, plus the ~20 fixed rune/Orb
+// sprites rune-sprites.ts bakes under `runes#<build>` — at ~1 KB per bake
+// this is still ~160 KB of localStorage. Insertion-order LRU, oldest-stored
+// evicted.
+const BAKE_CAP = 160
 
 // Parsed-map memo keyed on the raw stored string (same idiom as
 // offline-state.ts): a paint looks up one bake per doll, and re-parsing a

@@ -91,7 +91,7 @@ describe('paintAvatars', () => {
     resolveMock.mockImplementation(() => new Promise((r) => { release = r }))
     const container = document.createElement('div')
     const ctl = new AbortController()
-    const done = paintAvatars(container, [avatar('a', 'v1')], 1, 'x', ctl.signal)
+    const done = paintAvatars(container, [avatar('a', 'v1')], 1, 'x', { signal: ctl.signal })
     // The local-pack seed is awaited before any resolve starts — wait for the
     // resolver to be reached so `release` exists.
     await vi.waitFor(() => expect(resolveMock).toHaveBeenCalled())
@@ -177,7 +177,7 @@ describe('paintAvatars', () => {
     const noDoll = { ...avatar('b', 'v2'), doll: null } as Avatar
     const seen: Array<[string, number]> = []
     await paintAvatars(container, [avatar('a', 'v1'), noDoll, avatar('c', 'v3')], 1, 'x',
-      undefined, (el, i) => seen.push([el.dataset.doll!, i]))
+      { decorate: (el, i) => seen.push([el.dataset.doll!, i]) })
     expect(seen.sort((p, q) => p[1] - q[1])).toEqual([['a', 0], ['c', 2]])
   })
 

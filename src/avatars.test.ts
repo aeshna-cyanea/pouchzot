@@ -254,3 +254,40 @@ describe('avatar metadata and outcomes', () => {
     expect(list[1].outcome?.reason).toBe('dead')     // the fallen one, retained
   })
 })
+
+describe('rune collection', () => {
+  it('accumulates runes across captures instead of overwriting (resume sees no pickups)', () => {
+    saveAvatar(rec({ runes: ['serpentine'] }), { turn: 5000 })
+    saveAvatar(rec({}), { turn: 5200 })                       // next session: nothing picked up yet
+    expect(listAllAvatars()[0].runes).toEqual(['serpentine'])
+    saveAvatar(rec({ runes: ['golden'] }), { turn: 9000 })   // this session's pickups only
+    expect(listAllAvatars()[0].runes).toEqual(['serpentine', 'golden'])
+  })
+
+  it('keeps pickup order and ignores a re-observed rune', () => {
+    saveAvatar(rec({ runes: ['slimy', 'silver'] }), { turn: 5000 })
+    saveAvatar(rec({ runes: ['silver', 'iron'] }), { turn: 6000 })
+    expect(listAllAvatars()[0].runes).toEqual(['slimy', 'silver', 'iron'])
+  })
+
+  it('leaves the field absent when no rune was ever seen', () => {
+    saveAvatar(rec({}), { turn: 100 })
+    saveAvatar(rec({}), { turn: 200 })
+    expect(listAllAvatars()[0]).not.toHaveProperty('runes')
+  })
+
+  it('a reroll starts a fresh collection, the fallen character keeps its own', () => {
+    saveAvatar(rec({ runes: ['golden'] }), { turn: 5000 })
+    saveAvatar(rec({}), { turn: 1 })
+    const list = listAllAvatars()
+    expect(list).toHaveLength(2)
+    expect(list[0].runes).toBeUndefined()
+    expect(list[1].runes).toEqual(['golden'])
+  })
+
+  it('the outcome stamp merges runes seen after the last capture', () => {
+    saveAvatar(rec({ runes: ['golden'] }), { turn: 5000 })
+    recordAvatarOutcome(SLOT, { reason: 'won' }, { runes: ['golden', 'abyssal'] })
+    expect(listAllAvatars()[0].runes).toEqual(['golden', 'abyssal'])
+  })
+})

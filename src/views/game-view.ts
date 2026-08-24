@@ -338,14 +338,21 @@ export function buildGameView(
   // menu-stack replay, hence the gate at the count site.
   let sawNewgameChoice = false
 
-  // Unlatched rune counter (countEach: one row per rune — totals, never
-  // people-counts). Same own-real-honest-game gate as the outcome counters.
-  function maybeCountRune(text: string): void {
-    if (spectating || !gameId || cheatSeen) return
+  // Rune pickup line → (1) the character's persisted collection (charMeta
+  // .runes: the next map capture / the outcome stamp writes it to the crypt
+  // entry — see ../avatars mergeRunes) and (2) the unlatched anonymous
+  // counter (countEach: one row per rune — totals, never people-counts).
+  // Only the counter takes the honest-game gate: wizmode runes stay on the
+  // player's own card (policy is badge, not filter — char-card.ts), they
+  // just don't feed the public stats. Spectated games write neither (the
+  // avatar writers are gated on `spectating`; the counter gates here).
+  function onRunePickup(text: string): void {
+    if (spectating) return
     const rune = parseRunePickup(text)
     if (!rune || runesCounted.has(rune)) return
     runesCounted.add(rune)
-    countEach(gameId === 'offline' ? 'rune-each-offline' : 'rune-each')
+    charMeta.runes = [...(charMeta.runes ?? []), rune] // runesCounted already dedups
+    if (gameId && !cheatSeen) countEach(gameId === 'offline' ? 'rune-each-offline' : 'rune-each')
   }
   // True while a server `show_dialog` HTML overlay is up (e.g. trunk's
   // save-transfer prompt on resume). Tracked like crtActive so it can't be
@@ -1991,7 +1998,7 @@ export function buildGameView(
           // assigned to…" / "Your memory of … unravels") and flags the rail
           // stale; reharvestIfDirty after this loop resolves it.
           if (harvester.onMsgLine(m.text)) continue
-          maybeCountRune(m.text)
+          onRunePickup(m.text)
           // Hold the game-start welcome line for the background parse (see
           // welcomeLine decl); resolves now if name+species already arrived.
           if (!welcomeSettled && looksLikeWelcome(m.text)) {

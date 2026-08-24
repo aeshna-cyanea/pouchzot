@@ -18,7 +18,7 @@
 
 import { listAllAvatars } from '../avatars'
 import {
-  deleteGameRecord, joinDollRecipe, readDollSidecars, readMorgueText, sortRecords,
+  deleteGameRecord, joinDollRecipe, readDollSidecars, readMorgueRunes, readMorgueText, sortRecords,
   type RecordsSort,
 } from '../offline/game-records'
 import { downloadPackFile } from '../offline/save-transfer'
@@ -48,17 +48,21 @@ export function openGameRecords(
   let live: readonly XlogRecord[] = records
   let mode: RecordsSort = 'recent'
   let cards = new Map<XlogRecord, HTMLElement>()
-  void readDollSidecars(records)
-    .catch(() => new Map<XlogRecord, string>())
-    .then((dolls) => {
+  void Promise.all([
+    readDollSidecars(records).catch(() => new Map<XlogRecord, string>()),
+    readMorgueRunes(records).catch(() => new Map<XlogRecord, string[]>()),
+  ])
+    .then(([dolls, runes]) => {
       if (!view.isConnected) return
       const avatars = records.length > 0 ? listAllAvatars() : []
       cards = new Map(records.map((rec): [XlogRecord, HTMLElement] => {
         const url = dolls.get(rec)
         // The join rides along even when a sidecar exists: it's the card's
         // repaint fallback if the sidecar PNG turns out undecodable
-        // (char-card's <img> error path).
-        const model = xlogToCard(rec, url, joinDollRecipe(rec, avatars))
+        // (char-card's <img> error path) — and its live-parsed pickups are
+        // the rune fallback when the morgue can't be read.
+        const joined = joinDollRecipe(rec, avatars)
+        const model = xlogToCard(rec, url, joined, runes.get(rec) ?? joined?.runes)
         return [rec, renderCharCard(model, {
           onOpen: () => openMorgue(model, rec, () => {
             live = live.filter((r) => r !== rec)

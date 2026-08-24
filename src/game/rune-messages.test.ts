@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseRunePickup, parseWinRuneCount } from './rune-messages'
+import { parseMorgueRunes, parseRunePickup, parseWinRuneCount } from './rune-messages'
 
 // Blurb shapes derived from hiscores.cc runes_gems_desc + the whitespace-
 // aligned game_ended message format (newline + dot-leader continuation).
@@ -47,5 +47,37 @@ describe('parseRunePickup', () => {
     expect(parseRunePickup('You see here the golden rune of Zot.')).toBeNull()
     expect(parseRunePickup('found the golden rune.')).toBeNull()
     expect(parseRunePickup('You now have 3 runes.')).toBeNull()
+  })
+})
+
+// Morgue `}` line shapes — output.cc _status_mut_rune_list + the 80-col
+// linebreak_string wrap, taken verbatim from real dumps.
+describe('parseMorgueRunes', () => {
+  it('reads a single-line list', () => {
+    const text = '0: Orb of Zot\n}: 3/15 runes: barnacled, silver, gossamer\na: Renounce Religion (0%)\n'
+    expect(parseMorgueRunes(text)).toEqual(['barnacled', 'silver', 'gossamer'])
+  })
+
+  it('joins the wrapped continuation of a full 15-rune list', () => {
+    const text = [
+      '0: Orb of Zot',
+      '}: 15/15 runes: barnacled, slimy, silver, golden, iron, obsidian, icy, bone,',
+      'abyssal, demonic, glowing, magical, fiery, dark, gossamer',
+      'a: Renounce Religion (0%), Bend Time (0%), Temporal Distortion (0%), Slouch',
+      '(0%)',
+    ].join('\n')
+    expect(parseMorgueRunes(text)).toEqual([
+      'barnacled', 'slimy', 'silver', 'golden', 'iron', 'obsidian', 'icy', 'bone',
+      'abyssal', 'demonic', 'glowing', 'magical', 'fiery', 'dark', 'gossamer',
+    ])
+  })
+
+  it('reads the singular one-obtainable form and a remapped command key', () => {
+    expect(parseMorgueRunes('R: 1/1 rune: slimy\n')).toEqual(['slimy'])
+  })
+
+  it('yields an empty list when the line is absent (no runes → no line at all)', () => {
+    expect(parseMorgueRunes('@: no status effects\nA: no mutations\na: nothing\n')).toEqual([])
+    expect(parseMorgueRunes('')).toEqual([])
   })
 })

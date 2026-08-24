@@ -5243,6 +5243,49 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 .char-card-st-ev  { color: #b48fe0; }
 .char-card-st-sh  { color: #8fa8b8; }
 .char-card-meta { color: var(--text-dim); font-size: 0.72rem; opacity: 0.85; }
+/* Rune cells (src/views/rune-sprites.ts): a fixed box per rune/Orb holding
+   the ASCII item glyph (φ / 0, rune colour inline) until the sprite lands —
+   same footprint either way, so a swap never shifts layout. */
+.rune-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  vertical-align: middle;
+  line-height: 1;
+}
+.rune-glyph { font-family: var(--font-mono); font-weight: 600; line-height: 1; }
+/* Card rune row (rune-row.ts): 24px cells, wrapping — 15 runes make two
+   lines at phone width. */
+.rune-row { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+.char-card-runes { margin-top: 0.2rem; }
+/* Doll column: doll on the floor line, the Orb trophy centred beneath it. */
+.char-card-doll-col { flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.char-card-orb { filter: drop-shadow(0 0 4px rgba(253, 89, 250, 0.45)); }
+/* Doll marks (rune-marks.ts): wrapper keeps the doll's inline box; the marks
+   layer floats over it — Orb badge top-right, rune fan bottom-right with
+   each card overlapping the last, "+N" pip for the overflow. */
+.doll-marked { position: relative; display: inline-block; line-height: 0; }
+.doll-marks { position: absolute; inset: 0; pointer-events: none; }
+.doll-mark-orb {
+  position: absolute; top: -4px; right: -6px;
+  filter: drop-shadow(0 0 3px rgba(253, 89, 250, 0.6));
+}
+.doll-mark-fan {
+  position: absolute; bottom: -3px; right: -4px;
+  display: flex; align-items: flex-end;
+}
+/* Oldest → newest left to right, each overlapping the previous by a third;
+   later siblings paint on top, so the newest rune is the fully visible one. */
+.doll-mark-fan .rune-cell { filter: drop-shadow(0 0 1px #000); }
+.doll-mark-fan .rune-cell + .rune-cell { margin-left: -6px; }
+.doll-mark-pip {
+  font-family: var(--font-mono);
+  font-size: 0.6rem; font-weight: 600; line-height: 1;
+  color: var(--text);
+  text-shadow: 0 0 2px #000, 0 0 2px #000;
+  margin-left: 2px; margin-bottom: 2px;
+}
 /* Corner overlay, not a flex column — rationale in char-card.ts; has-open
    pads the headline clear of it. */
 .char-card-open {
@@ -5255,16 +5298,9 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 .char-card-has-open .char-card-head { padding-right: 1.1rem; }
 .char-card-compact { padding: 0.45rem 0.55rem; }
 .char-card-compact .char-card-doll { min-width: 48px; min-height: 48px; }
-.char-card-badge {
-  margin-left: 0.45rem;
-  font-size: 0.62rem;
-  font-weight: 400;
-  vertical-align: 0.1em;
-  color: var(--warn);
-  border: 1px solid rgba(250, 204, 21, 0.35);
-  border-radius: 4px;
-  padding: 0 0.3rem;
-}
+/* " *WIZ*" / " *EXPLORE*" headline tail: plain dim text like the title, the
+   game's own marker rather than a chip. */
+.char-card-badge { font-weight: 400; font-size: 0.8em; color: var(--text-dim); opacity: 0.8; }
 
 /* ── Records browser (views/records-view.ts) ─────────────────
    "Past games": full char-cards off the logfile, on the crypt-view shell.

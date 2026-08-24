@@ -31,8 +31,8 @@ export function openCrypt(): void {
   // Each doll is a tap target: dolls are otherwise unlabeled, so the card modal
   // (openAvatarCard) is what answers "who was this?".
   const avatars = listAllAvatars()
-  void paintAvatars(view.querySelector<HTMLElement>('.crypt-grid')!, avatars, 2.5, 'crypt-doll',
-    undefined, (el, i) => {
+  void paintAvatars(view.querySelector<HTMLElement>('.crypt-grid')!, avatars, 2.5, 'crypt-doll', {
+    decorate: (el, i) => {
       const a = avatars[i]
       el.setAttribute('role', 'button')
       el.tabIndex = 0
@@ -46,7 +46,8 @@ export function openCrypt(): void {
           openAvatarCard(a)
         }
       })
-    })
+    },
+  })
 }
 
 // Tap-a-doll drill-down: the character's full card (shared renderer, online
