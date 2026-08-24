@@ -5261,16 +5261,12 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 .char-card-runes { margin-top: 0.2rem; }
 /* Doll column: doll on the floor line, the Orb trophy centred beneath it. */
 .char-card-doll-col { flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.char-card-orb { filter: drop-shadow(0 0 4px rgba(253, 89, 250, 0.45)); }
 /* Doll marks (rune-marks.ts): wrapper keeps the doll's inline box; the marks
    layer floats over it — Orb badge top-right, rune fan bottom-right with
    each card overlapping the last, "+N" pip for the overflow. */
 .doll-marked { position: relative; display: inline-block; line-height: 0; }
 .doll-marks { position: absolute; inset: 0; pointer-events: none; }
-.doll-mark-orb {
-  position: absolute; top: -4px; right: -6px;
-  filter: drop-shadow(0 0 3px rgba(253, 89, 250, 0.6));
-}
+.doll-mark-orb { position: absolute; top: -4px; right: -6px; }
 .doll-mark-fan {
   position: absolute; bottom: -3px; right: -4px;
   display: flex; align-items: flex-end;
