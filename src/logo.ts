@@ -1,4 +1,4 @@
-// Decorated "Zot" segment of the PouchZot wordmark for the login screen.
+// Decorated PouchZot wordmark for the login screen.
 //
 // With probability LOGO_CONFIG.pDecorate the flat title morphs — after a short
 // delay, so the page never looks broken on load — into a per-character roll of
@@ -19,10 +19,7 @@ export const LOGO_CONFIG = {
   staggerMs: 150,      // per-character delay across the reveal
 }
 
-// Keep the inherited procedural treatment on the shared "Zot" ancestry. The
-// new "Pouch" prefix remains plain because the authenticated palette was built
-// for PocketZot and has no entries for every new letter.
-export const LOGO_WORD = 'Zot'
+export const LOGO_WORD = 'PouchZot'
 
 interface GlyphSub {
   ch: string         // the substitute glyph
@@ -53,9 +50,11 @@ const GLYPHS: Record<string, Glyph> = {
               { ch: '●', colors: [6, 4, 12, 15, 13] },                // trunk orb/boulder
               { ch: 'Θ', colors: [4, 9, 14, 5] },                     // trunk orbs (fire red / winter lightblue / entropy yellow / wretched-star magenta)
               { ch: '◊', colors: PALETTE }] },                        // trunk plant glyph (plants migrated P→◊) — round, so it reads as o; colour follows the glyph (plant palette: demonic-plant etc_random / toadstool colour_undef → any)
+  u: { colors: PALETTE, anyColor: true, subs: [] },                    // trunk ugly thing (colour_undef → any)
   c: { colors: [2, 4, 5, 6, 10, 12, 14],
        subs: [{ ch: '©', colors: [5, 9] },                            // teleporter — contains a 'c'
               { ch: 'Č', colors: [15, 1] }] },                        // trunk giants (antaeus/chuck white, polyphemus blue) — literal C-shape
+  h: { colors: [14], subs: [] },                                      // trunk hell hound (cyan)
   k: { colors: [1, 6, 7, 10, 12, 13, 15], subs: [] },
   e: { colors: [1, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14, 15],
        subs: [{ ch: 'Σ', colors: [11, 6, 9, 7, 4, 5, 1] },            // trunk elemental (angular E)
@@ -120,10 +119,11 @@ function applyRoll(span: HTMLElement, letter: string, animate: boolean): void {
 const tapHandlers = new WeakMap<HTMLElement, () => void>()
 
 // Build the per-character spans and, behind the pDecorate gate, morph them into a
-// DCSS-flavoured roll. Decorates only the literal LOGO_WORD substring, leaving any
-// fork chrome before or after it (a custom suffix or build tag) as untouched plain
-// text. Tapping the title forces a fresh roll (bypassing the gate and the reveal
-// delay — a tap is intent). Idempotent: rebuilds the title's contents each call.
+// DCSS-flavoured roll. Decorates the literal LOGO_WORD substring, leaving any fork
+// chrome before or after it (a custom prefix, suffix, or build tag) as untouched
+// plain text. Tapping the title forces a fresh roll (bypassing the gate and the
+// reveal delay — a tap is intent). Idempotent: rebuilds the title's contents each
+// call.
 export function decorateLogo(titleEl: HTMLElement): void {
   const full = titleEl.textContent ?? LOGO_WORD
   const at = full.indexOf(LOGO_WORD)

@@ -11,8 +11,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { decorateLogo, rollLogoChar, LOGO_WORD, LOGO_CONFIG } from './logo'
 
 // Letters that have NO lookalike swap (must never change glyph), vs. the rest.
-const NO_SWAP: string[] = []
-const HAS_SWAP = ['Z', 'o', 't']
+const NO_SWAP = ['u', 'h', 'k']
+const HAS_SWAP = ['P', 'o', 'c', 'e', 't', 'Z']
 
 const savedShift = LOGO_CONFIG.pGlyphShift
 afterEach(() => { LOGO_CONFIG.pGlyphShift = savedShift })
@@ -95,6 +95,13 @@ describe('decorateLogo', () => {
     expect(el.textContent).toBe(LOGO_WORD)
   })
 
+  it('wraps every character in the PouchZot login title', () => {
+    const el = makeTitle('PouchZot')
+    decorateLogo(el)
+    expect(wordmarkSpans(el)).toHaveLength('PouchZot'.length)
+    expect(spanText(el)).toBe('PouchZot')
+  })
+
   it('keeps a trailing suffix as plain text after the spans', () => {
     const el = makeTitle('PouchZot (fork)')
     decorateLogo(el)
@@ -114,7 +121,7 @@ describe('decorateLogo', () => {
     expect(el.textContent).toBe('(fork) PouchZot')
     const first = el.firstChild
     expect(first).toBeInstanceOf(Text)
-    expect(first?.textContent).toBe('(fork) Pouch')
+    expect(first?.textContent).toBe('(fork) ')
   })
 
   it('leaves the title untouched when LOGO_WORD is absent (renamed fork)', () => {
