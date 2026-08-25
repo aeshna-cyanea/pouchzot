@@ -56,6 +56,26 @@ export interface AvatarMeta {
   xl?: number
   place?: string    // branch name as sent ("Dungeon"); depth is separate
   depth?: number
+  runes?: string[]  // rune adjectives ("golden") in pickup order, from the
+                    // "You pick up the X rune" message (rune-messages.ts) —
+                    // the only source that works online (morgues are
+                    // cross-origin). Accumulates across sessions via
+                    // mergeRunes: a resume's capture sees no pickup lines,
+                    // so a plain overwrite would wipe them. Absent = none
+                    // seen since this field shipped, NOT "none collected".
+  orb?: true        // carrying the Orb of Zot (rune-messages.ts hasOrbLight);
+                    // one-way — the Orb can't be dropped — and kept across
+                    // captures like runes
+}
+
+// Order-preserving union of rune lists (existing first, then new ones as
+// they appear). Names are unique per game, so a duplicate can only be the
+// same pickup re-observed.
+export function mergeRunes(cur?: readonly string[], add?: readonly string[]): string[] | undefined {
+  if (!cur?.length) return add?.length ? [...add] : undefined
+  const out = [...cur]
+  for (const r of add ?? []) if (!out.includes(r)) out.push(r)
+  return out
 }
 
 // How a character's game ended, stamped once by recordAvatarOutcome. Only
@@ -139,7 +159,15 @@ export function saveAvatar(
   // Same character continuing: drop the stale entry so the prepend re-seats it at
   // front. Either way unshift keeps the list newest-first by construction — no
   // timestamp or re-sort needed; insertion order *is* recency.
-  if (cur != null && !turnReset && !closed) list.splice(idx, 1)
+  if (cur != null && !turnReset && !closed) {
+    list.splice(idx, 1)
+    // Runes only ever accumulate on a continuing character (the capture
+    // carries this session's pickups; the stored entry carries earlier ones).
+    // A reroll takes the `else` path and starts from the new capture alone.
+    const runes = mergeRunes(cur.runes, entry.runes)
+    if (runes) entry.runes = runes
+    if (cur.orb) entry.orb = true
+  }
   list.unshift(entry)
   if (list.length > STORE_CAP) list.length = STORE_CAP
   persist(list)
@@ -182,6 +210,9 @@ export function recordAvatarOutcome(
     if (v !== undefined) target[k] = v
   }
   ;(['species', 'title', 'background', 'god', 'xl', 'place', 'depth'] as const).forEach(merge)
+  const runes = mergeRunes(cur.runes, meta.runes)
+  if (runes) cur.runes = runes
+  if (meta.orb) cur.orb = true
   cur.outcome = { ...outcome, endedAt: Date.now() }
   persist(list)
 }

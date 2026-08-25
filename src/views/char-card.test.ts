@@ -25,6 +25,22 @@ vi.mock('./avatar-tiles', () => ({
   }),
 }))
 
+// The rune row is its own async unit (rune-row.test.ts); here only its
+// placement and inputs matter.
+vi.mock('./rune-sprites', () => ({
+  renderRuneRow: vi.fn((runes: string[]) => {
+    const d = document.createElement('div')
+    d.className = 'rune-row'
+    d.dataset.runes = runes.join(',')
+    return d
+  }),
+  renderOrbTrophy: vi.fn(() => {
+    const d = document.createElement('span')
+    d.className = 'rune-cell rune-orb'
+    return d
+  }),
+}))
+
 describe('godRankLine', () => {
   it('matches the character_description piety ladder', () => {
     expect(godRankLine('Trog', 0)).toBe('Was an Initiate of Trog.')
@@ -142,10 +158,12 @@ describe('xlogToCard', () => {
   })
 
   it('falls back to a live recipe when the sidecar is missing', () => {
-    const a = makeAvatar()
+    const a = makeAvatar({ doll: [[100, 0]] })
     const m = xlogToCard(rec, undefined, a)
     expect(m.doll).toBe(a)
     expect(renderCharCard(m).querySelector('.char-card-doll')).not.toBeNull()
+    // A recipe with no layers reserves no box.
+    expect(renderCharCard(xlogToCard(rec, undefined, makeAvatar())).querySelector('.char-card-doll')).toBeNull()
   })
 
   it('repaints the recipe when the sidecar image fails to decode', () => {
@@ -153,7 +171,7 @@ describe('xlogToCard', () => {
     const card = renderCharCard(xlogToCard(rec, 'data:image/png;base64,BAD', a))
     card.querySelector('.char-card-doll img')!.dispatchEvent(new Event('error'))
     expect(card.querySelector('.char-card-doll img')).toBeNull()
-    expect(paintAvatars).toHaveBeenCalledWith(expect.anything(), [a], expect.any(Number), 'char-card-doll-img')
+    expect(paintAvatars).toHaveBeenCalledWith(expect.anything(), [a], expect.any(Number), 'char-card-doll-img', { marks: false })
     expect(card.querySelector('.char-card-doll')).not.toBeNull()
 
     // No recipe to fall back to → the doll box goes away entirely.
@@ -183,6 +201,15 @@ function makeAvatar(over: Partial<Avatar> = {}): Avatar {
   }
 }
 
+describe('xlogToCard runes', () => {
+  it('carries the morgue list, none when empty', () => {
+    const rec = parseXlogLine(PROBE_LINE)
+    expect(xlogToCard(rec, null, null, ['golden', 'silver']).runes).toEqual(['golden', 'silver'])
+    expect(xlogToCard(rec, null, null, []).runes).toBeUndefined()
+    expect(xlogToCard(rec).runes).toBeUndefined()
+  })
+})
+
 describe('avatarToCard', () => {
   it('maps a closed online entry, blurb verbatim', () => {
     const m = avatarToCard(
@@ -200,6 +227,38 @@ describe('avatarToCard', () => {
     expect(m.origin).toBe('CDI')
     expect(m.dump).toEqual({ kind: 'url', href: 'https://x/morgue/t.txt' })
     expect(m.doll).toBeTruthy()
+  })
+
+  it('consumes the blurb header into facts, leaving the death description verbose', () => {
+    const message = [
+      '17930053 tester the Slayer (level 27, 323/323 HPs) *WIZ*',
+      '             Began as a Minotaur Wanderer on May 1, 2026.',
+      '             Was the Champion of Cheibriados.',
+      '             Escaped with the Orb',
+      '             ... and 15 runes!',
+      '             ',
+      '             The game lasted 03:29:45 (86006 turns).',
+    ].join('\n')
+    const m = avatarToCard(makeAvatar({ outcome: { reason: 'won', message, endedAt: 1 } }))
+    expect(m.charName).toBe('tester')      // headline untouched
+    expect(m.charTitle).toBe('Slayer')
+    expect(m.badge).toBe('wizmode')
+    expect(m.background).toBe('Wanderer')  // split on the known species
+    expect(m.godRank).toBe('Was the Champion of Cheibriados.')
+    expect(m.xl).toBe(27)                  // blurb's final XL over the last capture's 12
+    expect(m.score).toBe(17930053)
+    expect(m.turns).toBe(86006)
+    expect(m.duration).toBe('03:29:45')
+    expect(m.result.verbose).toBe('Escaped with the Orb\n... and 15 runes!')
+    // The welcome-parsed background wins over the combo split when present.
+    expect(avatarToCard(makeAvatar({ background: 'Berserker', outcome: { reason: 'won', message, endedAt: 1 } })).background)
+      .toBe('Berserker')
+    // Rendered: the result line starts at the death sentence, the marker
+    // trails the headline as the game writes it.
+    const card = renderCharCard(m)
+    expect(card.querySelector('.char-card-result')?.textContent).toBe('Escaped with the Orb\n... and 15 runes!')
+    expect(card.querySelector('.char-card-head')?.textContent).toBe('tester Slayer *WIZ*') // fixture title has no joiner
+    expect(card.querySelector('.char-card-meta')?.textContent).toContain('17,930,053 pts')
   })
 
   it('treats a live save as saved with no result line', () => {
@@ -238,6 +297,34 @@ describe('avatarToCard', () => {
 
 describe('renderCharCard', () => {
   const model = xlogToCard(parseXlogLine(PROBE_LINE))
+
+  it('shows the rune row for any run with runes; the Orb is the doll column trophy on wins', () => {
+    const runes = (m: typeof model, compact = false) =>
+      renderCharCard(m, { compact }).querySelector<HTMLElement>('.char-card-runes.rune-row')?.dataset.runes
+    const orb = (m: typeof model) => renderCharCard(m).querySelector('.char-card-doll-col .char-card-orb') !== null
+    expect(runes(model)).toBeUndefined()
+    expect(orb(model)).toBe(false)
+    expect(runes({ ...model, runes: ['golden'] })).toBe('golden')
+    expect(runes({ ...model, runes: ['golden'] }, true)).toBe('golden') // compact keeps it
+    // Rune-less win: no row, but the doll column exists for the Orb alone.
+    const win = { ...model, result: { kind: 'won' as const, verb: 'Won!' } }
+    expect(runes(win)).toBeUndefined()
+    expect(orb(win)).toBe(true)
+    expect(renderCharCard(win).querySelector('.char-card-doll')).toBeNull() // no doll, no doll box
+    expect(runes({ ...win, runes: ['golden', 'abyssal'] })).toBe('golden,abyssal')
+    // Carrying the Orb (live save, or died on the orb run) earns the trophy too.
+    expect(orb({ ...model, orb: true })).toBe(true)
+    expect(avatarToCard(makeAvatar({ orb: true })).orb).toBe(true)
+    // Crypt-modal form: same column layout, grid-sized doll, runes still last.
+    const hero = renderCharCard({ ...win, runes: ['golden'] }, { hero: true })
+    expect(hero.classList.contains('char-card-hero')).toBe(true)
+    expect(hero.querySelector('.char-card-doll-col .char-card-orb')).not.toBeNull()
+    expect(hero.querySelector('.char-card-body')?.lastElementChild?.classList.contains('char-card-runes')).toBe(true)
+    // Last in the body, under the meta line — a shelf, not a break in the text.
+    const body = renderCharCard({ ...model, runes: ['golden'] }).querySelector('.char-card-body')!
+    expect(body.lastElementChild?.classList.contains('char-card-runes')).toBe(true)
+    expect(body.querySelector('.char-card-meta')?.nextElementSibling).toBe(body.lastElementChild)
+  })
 
   it('lays out the full card', () => {
     const card = renderCharCard(model)
@@ -312,9 +399,11 @@ describe('renderCharCard', () => {
     expect(compact.querySelector('.char-card-result')?.textContent).toBe('Died in D:7')
   })
 
-  it('renders the badge chip inside the headline', () => {
+  it('renders the wiz/explore marker as the headline tail', () => {
     const card = renderCharCard({ ...model, badge: 'wizmode' })
-    expect(card.querySelector('.char-card-head .char-card-badge')?.textContent).toBe('wizmode')
+    expect(card.querySelector('.char-card-head .char-card-badge')?.textContent).toBe(' *WIZ*')
+    expect(renderCharCard({ ...model, badge: 'explore' }).querySelector('.char-card-head')?.textContent)
+      .toBe('TmsgProbe the Trooper *EXPLORE*')
     expect(renderCharCard(model).querySelector('.char-card-badge')).toBeNull()
   })
 

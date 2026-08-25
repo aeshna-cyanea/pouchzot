@@ -19,6 +19,7 @@ import { isOverlayOpen, closeTopOverlay } from './overlay'
 import { handleKeydown, CK_UP, CK_DOWN, CK_PGUP, CK_PGDN, CK_HOME, CK_END } from '../game/input/keyboard'
 import { createShiftToggle } from '../game/input/shift-state'
 import { uiColor, escHtml, dcssToHtml } from '../game/dcss-colors'
+import { htmlToRuns, exportScreenPng, screenSlug, type DcssRun } from './screen-export'
 import { parsePromptText, PROMPT_TRIGGER_RE } from './prompt-parse'
 import { extractSkillHotkeys } from './skill-hotkeys'
 import { reflowSkillCrt, plainText } from './skill-reflow'
@@ -29,6 +30,9 @@ import { renderTiles, appendIconOverlays, dollTileSpec, monsterTileSpec, prepend
 import { cachedFingerprint, primeFingerprint } from '../game/tiles/atlas-dedup'
 import { ensureDollBaked, isBakeableLoader } from '../game/tiles/avatar-bake'
 import { recordAvatarOutcome, saveAvatar, type AvatarMeta } from '../avatars'
+import { count, countEach } from '../counter'
+import { downloadPackFile } from '../offline/save-transfer'
+import { hasOrbLight, parseRunePickup, parseWinRuneCount } from '../game/rune-messages'
 import { looksLikeWelcome, welcomeBackground } from '../game/char-label'
 import { getPref, setPref, MONSTER_LIST_MODE_CHANGED_EVENT, RENDER_MODE_CHANGED_EVENT } from '../prefs'
 import {
@@ -38,9 +42,10 @@ import {
 import { SpellHarvester, type SpellEntry } from '../game/spell-harvest'
 import { ChatView } from './chat-view'
 import {
-  showInputDialog, showNewgameChoice, showRandomCombo, showSeedSelection,
+  showInputDialog, showSeedSelection,
   type OverlayScreenCtx, type UiPushMsg,
 } from './game-overlays'
+import { showNewgameChoice, showRandomCombo, setNewgameShape, type NewgameFocusHandler } from './newgame-view'
 
 // Minimal surface of Chromium's CloseWatcher API (absent from TS's DOM lib);
 // used by the Android back handler below. Feature-detected at the single use
@@ -130,6 +135,10 @@ export function buildGameView(
   username = '',
   gameId = '',
   guest = false,
+  // Offline only (app.ts passes boot.readMorgue): reads a '#' dump out of
+  // the engine's live FS by its wire stem. Presence of this callback is
+  // also the gate for decorating the dump log line with a download button.
+  readMorgue?: (filename: string) => Promise<Uint8Array<ArrayBuffer> | null>,
 ): HTMLElement {
   const store = new MapStore()
   if (import.meta.env.DEV) (window as unknown as { __dcssStore: MapStore }).__dcssStore = store
@@ -307,10 +316,54 @@ export function buildGameView(
   // (offline that gap is the engine's final IDBFS persist, several frames).
   // Never reset: exitToLobby discards the whole view.
   let gameOverSeen = false
+  // Wizard/explore latch for the anonymous outcome counters (src/counter.ts):
+  // both modes can fabricate outcomes (wizmode conjures runes/the Orb, explore
+  // removes death), so latching either excludes this session's won/dead/rune
+  // rows — crawl's own scoring line (hiscores.cc suppresses DGL milestones for
+  // both, but still sends them to webtiles, hence our own gate). Sticky by
+  // construction: crawl persists you.wizard in the save and re-reports it in
+  // the first `player` message of a resumed session, so a per-view latch
+  // can't be dodged by a reload. Merely non-scoring-but-honest play (seeded
+  // games) deliberately does NOT latch.
+  let cheatSeen = false
+  // Runes already counted this view, by name. The pickup line reaches a live
+  // client at most once (rollback touches only temporary messages; neither
+  // reconnect nor the attach handshake replays history — message.cc
+  // buffer.send sends `unsent` only), so this Set is insurance against wire
+  // paths not traced, not a known dup. Names are unique per game, so it can
+  // never suppress a legitimate second rune.
+  const runesCounted = new Set<string>()
+  // Creation flow seen this view (armed by the newgame-choice ui-push,
+  // consumed by the first `map` message → one 'newchar' count). Spectators
+  // can receive a watched player's creation screens via the attach handshake's
+  // menu-stack replay, hence the gate at the count site.
+  let sawNewgameChoice = false
+
+  // Rune pickup line → (1) the character's persisted collection (charMeta
+  // .runes: the next map capture / the outcome stamp writes it to the crypt
+  // entry — see ../avatars mergeRunes) and (2) the unlatched anonymous
+  // counter (countEach: one row per rune — totals, never people-counts).
+  // Only the counter takes the honest-game gate: wizmode runes stay on the
+  // player's own card (policy is badge, not filter — char-card.ts), they
+  // just don't feed the public stats. Spectated games write neither (the
+  // avatar writers are gated on `spectating`; the counter gates here).
+  function onRunePickup(text: string): void {
+    if (spectating) return
+    const rune = parseRunePickup(text)
+    if (!rune || runesCounted.has(rune)) return
+    runesCounted.add(rune)
+    charMeta.runes = [...(charMeta.runes ?? []), rune] // runesCounted already dedups
+    if (gameId && !cheatSeen) countEach(gameId === 'offline' ? 'rune-each-offline' : 'rune-each')
+  }
   // True while a server `show_dialog` HTML overlay is up (e.g. trunk's
   // save-transfer prompt on resume). Tracked like crtActive so it can't be
   // orphaned if the server proceeds without an explicit hide_dialog.
   let dialogActive = false
+  // Focus sink of the live newgame-choice render (ui-state routing below).
+  // Dropped whenever another render takes the overlay (enterOverlayLayout)
+  // or the overlay closes (hideOverlay), so the retired render's closure —
+  // its DOM tree and item map — doesn't outlive the screen.
+  let newgameFocus: NewgameFocusHandler | null = null
   let crtTag: string | undefined
   // Server tracks a menu stack (open_menu pushes, close_menu pops one,
   // close_all_menus clears). Mirroring it is what lets close_menu restore
@@ -330,10 +383,11 @@ export function buildGameView(
   let uiCutoff = -1
   // Mirrors the engine's m_menu_stack depth (menus + CRT frames + ui-push
   // layouts). Known skew: server-side a CRT occupies a real stack slot
-  // (push_crt_menu) while crtActive is a boolean that close_menu doesn't
-  // clear — between a CRT's close_menu and the layer/close_all_menus that
-  // follows, the count can be off by one. Pre-existing modeling; acceptable
-  // because no engine cutoff site can start under a CRT screen.
+  // (push_crt_menu) while crtActive is a boolean with no stack position —
+  // a close_menu arriving while a menu sits above the CRT pops the menu,
+  // so a CRT pushed *over* a menu can be off by one until the
+  // close_all_menus that follows. Acceptable because no engine cutoff site
+  // can start under a CRT screen.
   const overlayDepth = () => menuStack.length + (crtActive ? 1 : 0) + uiStack.length
   const cutoffCovers = (depth: number) => uiCutoff >= 0 && depth <= uiCutoff
   const cutoffHidesAll = () => cutoffCovers(overlayDepth())
@@ -410,7 +464,7 @@ export function buildGameView(
   // bottom edge in portrait (landscape slots it into the sidebar `spells`
   // row). The message log floats over the map too — always, casters or not —
   // so the rail is out of flow; the `spell-row` class on #game-view lifts the
-  // log (and --more--) by the rail's height AND grows the map's bottom
+  // log by the rail's height AND grows the map's bottom
   // centering reserve to match (see the #map-grid padding rules), so the @
   // re-centers ~1 row upward when the rail fades in — a deliberate trade,
   // accepted on-device over the @ sitting persistently low for casters.
@@ -419,6 +473,18 @@ export function buildGameView(
   spellRail.id = 'spell-rail'
   spellRail.style.display = 'none'
   let activePromptEl: HTMLElement | null = null
+  // Armed by {msg:'dump'} (offline '#'); the msgs loop spends it on the
+  // engine's "Char dumped to …" line, which renders with a download button.
+  let pendingDumpFile: string | null = null
+  // Online twin: {msg:'dump', url} (process_handler.py:1180 broadcasts to
+  // player AND spectators, morgue_url servers only). Spent on the
+  // DGAMELAUNCH form of the log line (chardump.cc:1930 — no path online),
+  // which then opens the morgue URL. Unlike pendingDumpFile this survives
+  // msgs batches: the broadcast rides the control socket while the line
+  // rides the message flush, so their order isn't guaranteed — the dump
+  // case also decorates retroactively when the line arrived first.
+  const DUMP_OK_LINE = 'Char dumped successfully'
+  let pendingDumpUrl: string | null = null
   let inXMode = false
   let exitedXModeForInput = false
   // Menu filter input (Ctrl-F → "Search for what? (regex)"). Server sends a
@@ -544,7 +610,9 @@ export function buildGameView(
   msgLog.addEventListener('click', (e) => {
     if (isHarvesting()) return
     if (uiOverlay.style.display === 'none' && !(e.target as HTMLElement).closest('button, input, .game-text-input-row')) {
-      conn.send({ msg: 'key', keycode: 16 })
+      // While --more-- is up the whole framed log is the dismiss target
+      // (Space); otherwise a tap opens scrollback (Ctrl-P).
+      conn.send({ msg: 'key', keycode: moreActive ? 32 : 16 })
       focusView()
     }
   })
@@ -685,9 +753,18 @@ export function buildGameView(
   hud.appendChild(hudTop)
   hud.appendChild(statusView.element)
 
+  // --more-- shows as a row INSIDE the log plus a frame around the whole log
+  // (.more-active), matching where the reference puts it (webtiles' #more is
+  // an unstyled line directly below #messages; console prints it as the
+  // message window's last line). The floating #more-btn survives only for
+  // X mode, where the log is display:none. All presentation flows through
+  // syncMoreDisplay; state lives in moreActive, never the DOM.
+  let moreActive = false
+  const moreLine = document.createElement('p')
+  moreLine.id = 'msg-more'
+
   const moreBtn = document.createElement('button')
   moreBtn.id = 'more-btn'
-  moreBtn.textContent = '— more —'
   moreBtn.style.display = 'none'
   moreBtn.addEventListener('click', () => {
     if (isHarvesting()) return
@@ -764,6 +841,34 @@ export function buildGameView(
   menuControls.id = 'menu-controls'
   menuControls.style.display = 'none'
 
+  // Share chip for exportable fixed-width screens (screen-export.ts): the `%`
+  // overview and the end screen (the allowlist in showUiPush). A sibling of
+  // the overlay (not a child — enterOverlayLayout wipes uiOverlay.innerHTML
+  // on every render), absolutely positioned over the map area, visible only
+  // while an exportable screen is up, reachable regardless of how far the
+  // body has scrolled.
+  const exportBtn = document.createElement('button')
+  exportBtn.className = 'screen-export-btn'
+  exportBtn.hidden = true
+  exportBtn.setAttribute('aria-label', 'Share as image')
+  exportBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>'
+  let exportSource: { runs: () => DcssRun[][]; slug: string } | null = null
+  let exportBusy = false
+  exportBtn.addEventListener('click', () => {
+    const src = exportSource
+    if (!src || exportBusy) return
+    exportBusy = true
+    // runs() evaluates inside the async body so a synchronous throw can't
+    // skip the finally and latch the chip disabled.
+    void (async () => exportScreenPng(src.runs(), src.slug))()
+      .catch((e: unknown) => console.error('screen export failed', e))
+      .finally(() => { exportBusy = false })
+  })
+  function setExportSource(src: typeof exportSource): void {
+    exportSource = src
+    exportBtn.hidden = !src
+  }
+
   const numpadInput = document.createElement('div')
   numpadInput.id = 'numpad-input'
   numpadInput.style.display = 'none'
@@ -811,6 +916,8 @@ export function buildGameView(
     view.appendChild(touchControls.element)
     view.appendChild(menuControls)
   }
+  // Both roles: spectators share the watched player's screens too.
+  view.appendChild(exportBtn)
 
   view.setAttribute('tabindex', '0')
   requestAnimationFrame(() => focusView())
@@ -1066,6 +1173,16 @@ export function buildGameView(
   if (import.meta.env.DEV) {
     (window as unknown as { __dcssTiles: (on?: boolean) => void }).__dcssTiles =
       (on) => setRenderMode(on === undefined ? (renderMode === 'tiles' ? 'ascii' : 'tiles') : (on ? 'tiles' : 'ascii'))
+    // __dcssNgcShape(shape?) — override the newgame-choice item shape
+    // ('auto' | 'columns' | 'cards' | 'rows'; no arg cycles). Repaints the
+    // live screen so the toggle is a direct A/B rather than "wait for the
+    // next step"; guarded because restoreTopLayer would otherwise repaint
+    // (or hide) whatever unrelated layer happens to be on top.
+    ;(window as unknown as { __dcssNgcShape: (s?: Parameters<typeof setNewgameShape>[0]) => string }).__dcssNgcShape = (s) => {
+      const shape = setNewgameShape(s)
+      if (uiStack[uiStack.length - 1]?.type === 'newgame-choice') restoreTopLayer()
+      return shape
+    }
     // Spell harvest: __dcssHarvestSpells() fires a silent `I` and fills
     // __dcssSpellCache with the parsed memorised spells.
     ;(window as unknown as { __dcssHarvestSpells: () => void }).__dcssHarvestSpells = () => harvester.harvest()
@@ -1313,6 +1430,15 @@ export function buildGameView(
         // version creation guard's "nothing rendered" case can't apply.
         mapSeen = true
         disarmCreationGuard()
+        // A map message after the creation grid = the character exists.
+        if (sawNewgameChoice) {
+          sawNewgameChoice = false
+          if (!spectating && gameId) {
+            const offline = gameId === 'offline' ? '-offline' as const : ''
+            count(`newchar${offline}`)
+            countEach(`newchar-each${offline}`)
+          }
+        }
         if (msg.clear) store.clear()
         // vgrdc is the server's complete view-centering signal (present on a
         // map message whenever it matters — roughly half of them in
@@ -1338,6 +1464,7 @@ export function buildGameView(
       }
 
       case 'player': {
+        if (msg.wizard || msg.explore) cheatSeen = true
         if (msg.name) charName = msg.name
         if (msg.turn !== undefined) lastTurn = msg.turn // for the avatar shelf; see lastTurn decl
         // Merge the avatar-shelf identity/progress snapshot; see charMeta decl.
@@ -1367,6 +1494,10 @@ export function buildGameView(
         inventoryStore.update(msg.inv)
         statsView.update(msg)
         if (msg.status !== undefined) statusView.update(msg.status)
+        // Orb possession (rune-messages.ts hasOrbLight — why the light and
+        // not the pickup line). charMeta is in the capture sig, so the next
+        // map re-saves the entry; the outcome stamp merges it too.
+        if (!spectating && !charMeta.orb && hasOrbLight(msg.status)) charMeta.orb = true
         if (msg.time !== undefined) markLastMsg('turn')
         if (!hudRevealed) {
           hudRevealed = true
@@ -1489,6 +1620,15 @@ export function buildGameView(
 
       case 'ui-state': {
         const raw = msg as unknown as Record<string, unknown>
+        // Newgame focus sync arrives as a flat ui-state (outer-menu.cc
+        // scroll_button_into_view): {type:"newgame-choice", button_focus,
+        // from_client, menu_id}. The server emits an initial focus right
+        // after the push and re-emits on server-side arrow navigation.
+        if (raw['type'] === 'newgame-choice') {
+          const focus = raw['button_focus']
+          if (typeof focus === 'number') newgameFocus?.(focus, raw['from_client'] === true)
+          break
+        }
         const text = raw['text'] as string | undefined
         const body = raw['body'] as string | undefined
         const highlight = raw['highlight'] as string | undefined
@@ -1710,7 +1850,7 @@ export function buildGameView(
         const prevInputMode = currentInputMode
         currentInputMode = msg.mode
         if (msg.mode === 1) {  // COMMAND: normal play resumed
-          hideMoreBtn()
+          hideMore()
           disableActivePrompt()
           removeTextInput()
           // Reference only marks on the COMMAND transition, not on every
@@ -1768,7 +1908,40 @@ export function buildGameView(
         break
       }
 
+      case 'dump': {
+        // Mid-game '#' dump announcement. Offline the mini-server sends the
+        // stem; the engine's own "Char dumped to '<path>'." line follows in
+        // the same flush (verified: the starred dump precedes the msgs
+        // flush), so arm it for the msgs loop to decorate. Online servers
+        // send `url` (morgue URL sans extension, same convention as
+        // game_ended.dump): decorate the log line the same way, but
+        // order-tolerantly — if the line already landed as the newest row,
+        // link it in place; else arm for a coming flush.
+        if (msg.filename && readMorgue) pendingDumpFile = msg.filename
+        else if (msg.url) {
+          // Arm (superseding any stale arm), then attempt an immediate
+          // retro decorate. The retro path deliberately does NOT spend the
+          // arm: the newest row can be a STALE dump line (attach/reconnect
+          // replays message history as plain rows), with the real line
+          // still in flight. Double-decoration is harmless — the morgue
+          // URL is per-character and constant — so let the msgs loop spend
+          // the arm on the real line whenever one arrives.
+          pendingDumpUrl = msg.url + '.txt'
+          const newest = msgLog.querySelector<HTMLElement>('.game-msg')
+          if (newest && !newest.classList.contains('msg-dump-link')
+              && newest.textContent?.includes(DUMP_OK_LINE)) {
+            decorateDumpUrlRow(newest, pendingDumpUrl)
+          }
+        }
+        break
+      }
+
       case 'msgs': {
+        // The inline --more-- row must not be in the DOM while the batch
+        // merges: rollback pops firstChild N times and pushMsgRow prepends,
+        // both assuming the DOM head is the newest message row. Reattached
+        // below (a batch without a `more` key leaves the prior state up).
+        moreLine.remove()
         if (msg.rollback) {
           // msgLog is column-reverse: most-recent message is firstChild, so
           // rollback (remove the last N appended) walks the DOM head.
@@ -1788,6 +1961,7 @@ export function buildGameView(
           // assigned to…" / "Your memory of … unravels") and flags the rail
           // stale; reharvestIfDirty after this loop resolves it.
           if (harvester.onMsgLine(m.text)) continue
+          onRunePickup(m.text)
           // Hold the game-start welcome line for the background parse (see
           // welcomeLine decl); resolves now if name+species already arrived.
           if (!welcomeSettled && looksLikeWelcome(m.text)) {
@@ -1802,7 +1976,21 @@ export function buildGameView(
           // keep rollback counts consistent, so skip the (invisible) prompt
           // row + its buttons/listeners and append a plain line instead.
           if (inXMode) xdescAdd(m.text, m.channel)
-          if (!inXMode && m.channel === 2 && PROMPT_TRIGGER_RE.test(m.text)) {
+          // "dumped to" as well as the stem: the stem is the character's
+          // NAME, which many unrelated lines contain (welcome line, prompts
+          // naming the player) — and this branch outranks the prompt one.
+          if (!inXMode && pendingDumpFile !== null
+              && m.text.includes('dumped to') && m.text.includes(pendingDumpFile)) {
+            const row = makeDumpRow(m.text, pendingDumpFile)
+            pendingDumpFile = null
+            pushMsgRow(row)
+          } else if (!inXMode && pendingDumpUrl !== null
+              && m.text.includes(DUMP_OK_LINE)) {
+            const row = makeMsgRow(m.text, true)
+            decorateDumpUrlRow(row, pendingDumpUrl)
+            pendingDumpUrl = null
+            pushMsgRow(row)
+          } else if (!inXMode && m.channel === 2 && PROMPT_TRIGGER_RE.test(m.text)) {
             disableActivePrompt()
             const row = makePromptRow(m.text)
             activePromptEl = row
@@ -1811,8 +1999,15 @@ export function buildGameView(
             appendMessage(m.text, true)
           }
         }
-        if (msg.more) showMoreBtn(msg.more_text)
-        else if (msg.more === false) hideMoreBtn()
+        // The dump line lands in the FIRST msgs flush after {msg:'dump'}
+        // (verified: the starred dump precedes the flush in the same engine
+        // chunk, dispatched in order) — an arm that survived this batch has
+        // missed its line, so expire it rather than let a later line
+        // containing the character's name mis-decorate.
+        pendingDumpFile = null
+        if (msg.more) showMore(msg.more_text)
+        else if (msg.more === false) hideMore()
+        else if (moreActive) syncMoreDisplay()  // reattach as the bottom row
         // A memorise/forget this frame leaves us at a command prompt (the delay
         // finished; no input_mode transition fires), so re-harvest now rather
         // than waiting for the next menu round-trip.
@@ -1850,6 +2045,21 @@ export function buildGameView(
         // Swallow the close for a spell menu we harvested but never pushed,
         // so it can't pop/clear a real overlay underneath.
         if (harvester.consumePendingClose()) break
+        // A CRT frame (push_crt_menu) tears down via this same close_menu
+        // (tileweb.cc pop_menu). With no menu above it, the close is the
+        // CRT's own — end it here. The usual `m` skill screen masks this:
+        // main.cc skill_menu() → redraw_screen() → pop_all_ui_layouts sends
+        // a close_all_menus right after. But check_selected_skills() on
+        // load (files.cc _restore_game, a save with no skill training) runs
+        // before _post_init sets need_save, so redraw_screen takes its
+        // early-return arm and only the bare close_menu arrives — leaving
+        // crtActive set meant restoreTopLayer re-mounted an empty CRT over
+        // the map: a black screen, no controls, forever.
+        if (menuStack.length === 0 && crtActive) {
+          crtActive = false
+          crtTag = undefined
+          crtLines.clear()
+        }
         menuStack.pop()
         const prev = menuStack[menuStack.length - 1] ?? null
         menuShift.reset()
@@ -1918,6 +2128,19 @@ export function buildGameView(
             { reason: msg.reason, message: msg.message, dump: msg.dump },
             charMeta,
           )
+          // Anonymous outcome counters, same own-real-game gate as the crypt
+          // write above (fixture replays keep gameId ''), plus the wizard/
+          // explore latch — see cheatSeen. Win rows carry the rune count
+          // parsed from the end blurb (absent on parse miss, never 0).
+          if (!cheatSeen && (msg.reason === 'won' || msg.reason === 'dead')) {
+            const offline = gameId === 'offline' ? '-offline' as const : ''
+            if (msg.reason === 'won') {
+              countEach(`won-each${offline}`, {}, parseWinRuneCount(msg.message))
+            } else {
+              count(`dead${offline}`)
+              countEach(`dead-each${offline}`)
+            }
+          }
         }
         // Forward exit details so the lobby renders the exit dialog after the
         // layer switch. The trailing go_lobby + lobby list (often batched with
@@ -1946,6 +2169,7 @@ export function buildGameView(
     inXMode = true
     view.classList.add('x-mode')  // drops the map's log-strip padding (style.css)
     msgLog.style.display = 'none'
+    syncMoreDisplay()  // a pending --more-- swaps to the floating button
     hud.style.display = 'none'
     renderSpellRail()  // drop the rail row (and the log's map overlay) for the examine map
     touchControls.enterXMode()
@@ -1973,6 +2197,7 @@ export function buildGameView(
   function exitXMode(): void {
     inXMode = false
     view.classList.remove('x-mode')
+    syncMoreDisplay()  // a pending --more-- returns to the inline log row
     xdescReset()
     touchControls.exitXMode()
     mapView.setFontScale(1.0)
@@ -2024,7 +2249,14 @@ export function buildGameView(
     // Standalone screens (game-overlays.ts) own their ui-push type wholesale;
     // everything after this block shares the title/body/actions frame below.
     if (msg.type === 'newgame-choice') {
-      showNewgameChoice(overlayCtx, msg)
+      // Arms the newchar counter; the count waits for the first `map` (world
+      // exists = creation completed), so an aborted creation never counts.
+      // Re-arming on a resumed mid-creation flow is correct — it still ends
+      // in a new character.
+      sawNewgameChoice = true
+      // The screen's own enterLayout call has already nulled the previous
+      // handler; store the new render's.
+      newgameFocus = showNewgameChoice(overlayCtx, msg)
       // The creation grid hides the touch controls; played games get the
       // menu-controls bar (Esc) in their place. Spectators get neither.
       if (!spectating) {
@@ -2183,10 +2415,48 @@ export function buildGameView(
         uiOverlay.appendChild(buildActionsBar(msg.actions))
       }
     })
+    // The share-culture screens — the `%` overview (scroller tag "resists",
+    // output.cc), the Ctrl-O dungeon overview (untagged: dgn_overview never
+    // set_tags, so it's recognised by its heading, byte-identical in 0.34.1
+    // and trunk — dgn-overview.cc:249), and the end screen — are exportable
+    // as a PNG at their native 80-column layout, from the wire text rather
+    // than the reflowed rawBody the phone renders. Deliberately an
+    // allowlist: every other scroller is a multi-page document (help, notes,
+    // Ctrl-P history…) that nobody shares and that would render an absurdly
+    // tall canvas, so unknown/future screens ship chip-less by default.
+    // renderOverlay → enterOverlayLayout just cleared the source, so
+    // non-exportable types need no else branch.
+    if (msg.type === 'formatted-scroller' || msg.type === 'game-over') {
+      // The end screen's headline ("Goodbye, <name>.") arrives ONLY in
+      // `title` — end.cc writes title and body separately, there is no
+      // combined text field — so prepend it or the PNG loses the line the
+      // overlay shows (and that the filename slug is built from).
+      const exportBody = msg.text ?? msg.body ?? msg.desc ?? ''
+      const exportText = msg.title?.trim() ? `${msg.title}\n\n${exportBody}` : exportBody
+      const firstLine = stripDcss(exportText).split('\n').find((l) => l.trim())?.trim() ?? ''
+      const exportable = msg.type === 'game-over' || msg.tag === 'resists'
+        || /Dungeon Overview/.test(firstLine)
+      if (exportable && exportText.trim()) {
+        // Scrollers usually carry no `title` — the heading is the text's own
+        // first line (the `%` overview's "Name the Title (Species Class)…"),
+        // which makes a filename that names the character.
+        const slugSrc = title || firstLine || msg.type
+        // Whole body through dcssToHtml in one call (unlike the per-line
+        // display path) so open colour switches persist across newlines.
+        setExportSource({ runs: () => htmlToRuns(dcssToHtml(exportText)), slug: screenSlug(slugSrc) })
+      }
+    }
     // A ui-push layered over a shop/stash/acquirement menu (e.g. describe-item
-    // after `!`) should keep the menu's bottom row.
+    // after `!`) should keep the menu's bottom row. Same for the skills CRT
+    // (`m` → `?` → letter opens a describe popup): keep the skills row (its ⎋
+    // dismisses) instead of swapping in the d-pad. Fixed row only — the
+    // letter row is derived from the CRT lines and isn't rebuilt here.
     if (activeMenu?.tag === 'shop' || activeMenu?.tag === 'stash' || activeMenu?.tag === 'acquirement') {
       buildMenuControls(activeMenu.tag, activeMenu.flags)
+      menuControls.style.display = ''
+      touchControls.element.style.display = 'none'
+    } else if (crtActive && crtTag === 'skills') {
+      buildMenuControls(crtTag)
       menuControls.style.display = ''
       touchControls.element.style.display = 'none'
     }
@@ -2850,8 +3120,8 @@ export function buildGameView(
   // when there are none. Each button casts on tap via castSpellLetter (its
   // own guard keeps a tap during a menu/overlay/X-mode inert). The
   // `spell-row` class on the view tracks rail visibility: while set, CSS
-  // lifts the floating message log (and --more--) by the rail's height so
-  // the rail fits beneath them, and grows the map's bottom centering
+  // lifts the floating message log by the rail's height so
+  // the rail fits beneath it, and grows the map's bottom centering
   // reserve to match (the padding change refits the map via its
   // ResizeObserver — a deliberate ~1-row re-center; see the #map-grid
   // padding comment in style.css).
@@ -2885,10 +3155,10 @@ export function buildGameView(
   // auto/re-harvest fired during a `--more--` or a channel-2 prompt leaked a
   // stray keystroke into it (eating the pager/answering the prompt, or — for
   // a harvest — getting the `I` swallowed so the probe times out and clears
-  // the rail). `moreBtn`/`activePromptEl` are exactly that missing state.
+  // the rail). `moreActive`/`activePromptEl` are exactly that missing state.
   function uiQuiet(): boolean {
     return uiStack.length === 0 && !crtActive && !dialogActive && !activeMenu
-      && !inXMode && activePromptEl === null && moreBtn.style.display === 'none'
+      && !inXMode && activePromptEl === null && !moreActive
   }
 
   // Truly idle at the command prompt — safe to inject a keystroke that must
@@ -3231,9 +3501,18 @@ export function buildGameView(
       // inversion: taps in the gaps/padding around rows hit .mp-list and stay
       // inert, so a near-miss on a monster can't dismiss the panel. When the
       // list fills the screen the ⎋ bar below is the close affordance.
+      //
+      // Spectating flips this to tap-ANYWHERE closes, minimap-style unadorned
+      // surface: a watcher has no touch-⎋ bar / back gesture on iOS (a full
+      // list left no dismiss target at all — stuck until the watched player's
+      // next overlay evicted the panel), and rows have no competing action —
+      // a watcher's click_cell is dropped by the server (ws_handler.on_message
+      // routes to process.handle_input only when self.process is set; watchers
+      // carry only watched_game) and logs a server-side warning, so the pick
+      // callback below also stays silent.
       body.addEventListener('click', (e) => {
         const t = e.target as HTMLElement
-        if (t === body || t.classList.contains('mp-empty')) closeMonsterPanel()
+        if (spectating || t === body || t.classList.contains('mp-empty')) closeMonsterPanel()
       })
       uiOverlay.appendChild(body)
     })
@@ -3245,6 +3524,7 @@ export function buildGameView(
     // orientations; landscape always worked this way).
 
     monsterPanel.setOnPickCoord((x, y) => {
+      if (spectating) return  // row tap closes via the body handler above
       if (uiStack.length === 0 && !crtActive && !activeMenu) {
         // Leave the overlay frame up: the server's describe-monster ui-push
         // will land in renderOverlay and swap the body in place, avoiding a
@@ -3357,6 +3637,10 @@ export function buildGameView(
     // false) — hideOverlay's resync brings it back with the map.
     closeMinimap({ suspend: true })
     chatView.hidePill()
+    // Whatever renders next isn't (yet) exportable; the exportable show
+    // (showUiPush) re-sets this after it has laid content down.
+    setExportSource(null)
+    newgameFocus = null
     uiOverlay.innerHTML = ''
     uiOverlay.classList.remove('prompt-menu', 'prompt-menu-alert')
     uiOverlay.classList.toggle('overlay-float', !!opts?.float)
@@ -3401,6 +3685,10 @@ export function buildGameView(
     renderOverlay,
     autoOpenKbd,
     focusView,
+    // Getters, not captured values: `loader` is reassigned on game_client
+    // and `spectating` on transition, both after this ctx is built.
+    getLoader: () => loader,
+    isSpectating: () => !!spectating,
   }
 
   function renderOverlay(title: string, buildBody: () => void, opts?: { float?: boolean }): void {
@@ -3562,6 +3850,8 @@ export function buildGameView(
 
   function hideOverlay(): void {
     autoCloseKbdIfOurs()
+    setExportSource(null)
+    newgameFocus = null
     uiOverlay.style.display = 'none'
     uiOverlay.innerHTML = ''
     uiOverlay.classList.remove('prompt-menu', 'prompt-menu-alert', 'overlay-float')
@@ -3607,13 +3897,29 @@ export function buildGameView(
     return el
   }
 
-  function showMoreBtn(text?: string): void {
-    moreBtn.textContent = text || '— more —'
-    moreBtn.style.display = ''
+  function showMore(text?: string): void {
+    moreActive = true
+    const label = text || '--more--'
+    moreLine.textContent = label
+    moreBtn.textContent = label
+    syncMoreDisplay()
   }
 
-  function hideMoreBtn(): void {
-    moreBtn.style.display = 'none'
+  function hideMore(): void {
+    moreActive = false
+    syncMoreDisplay()
+  }
+
+  // One renderer for both presentations: the inline log row + .more-active
+  // frame in normal play, the floating button in X mode (log hidden there).
+  // Also called by the msgs merge (reattach after detach) and the X-mode
+  // transitions, so a --more-- pending across enter/exit swaps presentation.
+  function syncMoreDisplay(): void {
+    const inline = moreActive && !inXMode
+    view.classList.toggle('more-active', inline)
+    if (inline) msgLog.prepend(moreLine)  // firstChild = visual bottom row
+    else moreLine.remove()
+    moreBtn.style.display = moreActive && inXMode ? '' : 'none'
   }
 
   function disableActivePrompt(): void {
@@ -3793,6 +4099,44 @@ export function buildGameView(
     return row
   }
 
+  // The '#' dump log line ("Char dumped to '<path>'." — chardump.cc:1932),
+  // kept verbatim and made tappable as a whole line: underlined once the
+  // dump's bytes are in hand, tap downloads them. Pre-read, then arm — the
+  // download must be synchronous inside its user activation, since an
+  // a.click() reached through a promise chain gets blocked on iOS whenever
+  // the readFile reply waits on a busy engine (records-view's ↓ pre-reads
+  // for the same reason). Deliberately no auto-download: on-device
+  // (2026-08-17) a share sheet opening under the still-down '#' finger
+  // swallowed the touchend and runaway key repeat queued sheets until the
+  // page died — the sheet may only ever follow a deliberate tap.
+  function makeDumpRow(text: string, stem: string): HTMLElement {
+    const row = makeMsgRow(text, true)
+    void readMorgue?.(stem).then((data) => {
+      if (!data) return // engine gone or file unreadable — stays a plain line
+      armDumpTap(row, () => {
+        downloadPackFile(new File([data], `${stem}.txt`, { type: 'text/plain' }))
+      })
+    })
+    return row
+  }
+
+  // Shared tap-the-whole-line arming for both dump kinds.
+  function armDumpTap(row: HTMLElement, onTap: () => void): void {
+    row.classList.add('msg-dump-link')
+    row.addEventListener('click', (e) => {
+      e.stopPropagation() // not also a log tap (--more-- advance)
+      onTap()
+      focusView()
+    })
+  }
+
+  // Online counterpart of makeDumpRow: the tap opens the server's morgue
+  // URL in a new tab. Deliberately a navigation, not a fetch — morgue files
+  // are served without CORS headers, so an in-app download can't work online.
+  function decorateDumpUrlRow(row: HTMLElement, url: string): void {
+    armDumpTap(row, () => { window.open(url, '_blank', 'noopener') })
+  }
+
   function appendActionBtn(row: HTMLElement, label: string, key: string): void {
     const btn = document.createElement('button')
     btn.className = 'action-btn'
@@ -3838,8 +4182,12 @@ export function buildGameView(
   // can color it (lightgrey turn, darkgrey cmd). If both classes land on
   // the same span the `turn` color wins, matching reference rule order.
   function markLastMsg(kind: 'turn' | 'cmd'): void {
-    // msgLog is column-reverse: visual "last" = DOM :first-child.
-    const mark = msgLog.querySelector<HTMLElement>('.game-msg:first-child .msg-turn-mark')
+    // msgLog is column-reverse: visual "last" = first .game-msg in DOM order
+    // (not :first-child — a non-message head node, e.g. the inline --more--
+    // row when a `player` time tick trails the msgs batch, must not eat the
+    // mark; the reference likewise marks its last .game_message, not the
+    // pane's last node).
+    const mark = msgLog.querySelector<HTMLElement>('.game-msg .msg-turn-mark')
     if (!mark) return
     mark.textContent = '_'
     mark.classList.add(kind)
@@ -3851,14 +4199,16 @@ export function buildGameView(
   // pruning the oldest means dropping the DOM lastChild. All message insertion
   // goes through here so that convention — and the 50-row cap — lives in one
   // place; reach for appendChild or prune firstChild elsewhere and the log
-  // silently inverts. (rollback / markLastMsg read the newest as firstChild to
-  // match this same convention.)
+  // silently inverts. (rollback walks the DOM head to match — the msgs
+  // handler detaches the --more-- row first so the head is a message row —
+  // and markLastMsg matches the first .game-msg, tolerating non-message
+  // head nodes.)
   function pushMsgRow(node: Node, prune = true): void {
     msgLog.prepend(node)
     if (prune) while (msgLog.children.length > 50) msgLog.lastChild?.remove()
   }
 
-  function appendMessage(text: string, html = false): void {
+  function makeMsgRow(text: string, html = false): HTMLElement {
     const p = document.createElement('p')
     p.className = 'game-msg'
     const mark = document.createElement('span')
@@ -3869,7 +4219,11 @@ export function buildGameView(
     if (html) content.innerHTML = dcssToHtml(text)
     else content.textContent = text
     p.appendChild(content)
-    pushMsgRow(p)
+    return p
+  }
+
+  function appendMessage(text: string, html = false): void {
+    pushMsgRow(makeMsgRow(text, html))
   }
 
   return view

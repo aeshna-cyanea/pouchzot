@@ -15,10 +15,50 @@ inherited from the original PocketZot project.
 - Renamed the fork PouchZot and clarified its source, copyright, and
   relationship to the original PocketZot project.
 
+## 2026-08-24
+
+- Character cards now show the runes a character has collected, and the Orb
+  of Zot once carried. Characters on the login screen, in the crypt, and on
+  the offline save list also show these as small badges.
+- Crypt cards show score, turns, duration, and god standing, with a larger
+  character sprite.
+
+## 2026-08-23
+
+- Redesigned the character creation screens.
+- Fixed a black screen that could occur after resuming a game directly into
+  the skills screen (no skills being trained).
+
+## 2026-08-19
+
+- The character overview, dungeon overview, and game end screens can now be
+  exported as images at full width.
+- Opening a skill's description from the skills menu now keeps the menu's
+  context controls instead of swapping in the d-pad.
+- On Android, the app should now always use the device's default monospace
+  font instead of an unintended fallback. Unverified as I have no Android
+  device.
+
+## 2026-08-18
+
+- Online char dumps (`#`) now link the server's dump file in the message
+  log.
+
+## 2026-08-17
+
+- Offline games now use less memory and release it sooner after exit.
+- Offline morgue files can now be downloaded from the morgue view.
+- Offline char dumps (`#`) can now be downloaded from the message log.
+- Held touch controls no longer auto-repeat when the app loses focus
+  mid-press.
+- The app now recovers on its own if the device relaunches it into an
+  outdated cached version.
+
 ## 2026-08-14
 
-- Fixed an issue with attempting to evoke a wand from within an item
-  description.
+- Reworked the --more-- prompt.
+- Fixed an issue with evoking while in an item description.
+- While spectating, tapping anywhere in the monster panel now closes it.
 
 ## 2026-08-13
 

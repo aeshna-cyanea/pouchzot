@@ -38,8 +38,8 @@ type DpadDef =
 type BindTap = (btn: HTMLElement, fire: () => void, opts?: { repeat?: boolean }) => void
 
 // Hold-to-repeat pacing, roughly matching OS keyboard auto-repeat defaults.
-export const REPEAT_DELAY_MS = 400
-export const REPEAT_INTERVAL_MS = 100
+export const REPEAT_DELAY_MS = 350
+export const REPEAT_INTERVAL_MS = 85
 
 // game-view owns the spell data (and the tile loader / cast logic), so it
 // supplies the grid DOM for the z tab; touch.ts just hosts it in the panel's
@@ -447,6 +447,25 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
     document.addEventListener(type, onDocTouch, { capture: true, passive: true })
   }
 
+  // --- Repeat runaway guard ---
+  // A held key's touchend is NOT guaranteed: iOS can present system UI over
+  // the page mid-press (observed on-device 2026-08-17: a share sheet opened
+  // by the '#' dump download swallowed the lift, and the repeat timers
+  // injected '#' every interval until the page died). The OS-keyboard
+  // behavior is to cancel auto-repeat on focus loss — mirror it: a held
+  // key's stop registers here on touchstart and removes itself when it
+  // runs, so the set only ever holds currently-held keys (a permanent
+  // registry would pin every rebuilt button's closure — kbd layer toggles
+  // and tab switches mint fresh buttons constantly). Any signal that the
+  // page lost the foreground flushes the set. Listeners die with
+  // destroy(), like onDocTouch above.
+  const repeatStops = new Set<() => void>()
+  const stopAllRepeats = (): void => { for (const stop of repeatStops) stop() }
+  const onVisibilityRepeat = (): void => { if (document.hidden) stopAllRepeats() }
+  document.addEventListener('visibilitychange', onVisibilityRepeat)
+  window.addEventListener('blur', stopAllRepeats)
+  window.addEventListener('pagehide', stopAllRepeats)
+
   const bindTap: BindTap = (btn, fire, opts) => {
     if (opts?.repeat) {
       // Hold-to-repeat, touch path only: touch events stay bound to their
@@ -460,11 +479,13 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
       const stop = (): void => {
         window.clearTimeout(delayTimer)
         window.clearInterval(repeatTimer)
+        repeatStops.delete(stop)
       }
       btn.addEventListener('touchstart', (e) => {
         e.preventDefault()
         fire()
         stop()
+        repeatStops.add(stop)
         delayTimer = window.setTimeout(() => {
           repeatTimer = window.setInterval(() => {
             if (!btn.isConnected) { stop(); return }
@@ -764,6 +785,10 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
     for (const type of ['touchstart', 'touchend', 'touchcancel'] as const) {
       document.removeEventListener(type, onDocTouch, { capture: true })
     }
+    stopAllRepeats()
+    document.removeEventListener('visibilitychange', onVisibilityRepeat)
+    window.removeEventListener('blur', stopAllRepeats)
+    window.removeEventListener('pagehide', stopAllRepeats)
   }
 
   function enterXMode(): void {

@@ -18,9 +18,10 @@
 
 import { listAllAvatars } from '../avatars'
 import {
-  deleteGameRecord, joinDollRecipe, readDollSidecars, readMorgueText, sortRecords,
+  deleteGameRecord, joinDollRecipe, readDollSidecars, readMorgueRunes, readMorgueText, sortRecords,
   type RecordsSort,
 } from '../offline/game-records'
+import { downloadPackFile } from '../offline/save-transfer'
 import type { XlogRecord } from '../offline/xlog'
 import { cardHeadline, renderCharCard, xlogToCard, type CharCardModel } from './char-card'
 import { mountCryptShell } from './crypt-view'
@@ -47,17 +48,21 @@ export function openGameRecords(
   let live: readonly XlogRecord[] = records
   let mode: RecordsSort = 'recent'
   let cards = new Map<XlogRecord, HTMLElement>()
-  void readDollSidecars(records)
-    .catch(() => new Map<XlogRecord, string>())
-    .then((dolls) => {
+  void Promise.all([
+    readDollSidecars(records).catch(() => new Map<XlogRecord, string>()),
+    readMorgueRunes(records).catch(() => new Map<XlogRecord, string[]>()),
+  ])
+    .then(([dolls, runes]) => {
       if (!view.isConnected) return
       const avatars = records.length > 0 ? listAllAvatars() : []
       cards = new Map(records.map((rec): [XlogRecord, HTMLElement] => {
         const url = dolls.get(rec)
         // The join rides along even when a sidecar exists: it's the card's
         // repaint fallback if the sidecar PNG turns out undecodable
-        // (char-card's <img> error path).
-        const model = xlogToCard(rec, url, joinDollRecipe(rec, avatars))
+        // (char-card's <img> error path) — and its live-parsed pickups are
+        // the rune fallback when the morgue can't be read.
+        const joined = joinDollRecipe(rec, avatars)
+        const model = xlogToCard(rec, url, joined, runes.get(rec) ?? joined?.runes)
         return [rec, renderCharCard(model, {
           onOpen: () => openMorgue(model, rec, () => {
             live = live.filter((r) => r !== rec)
@@ -98,7 +103,8 @@ export function openGameRecords(
 // and stat block live in the left ~55 columns, so the resting view reads
 // immediately; you pan right only for the wide tables. white-space:pre keeps
 // the 80-col alignment. Stacks over the list via the shared shell — Escape/Back unwind
-// one layer at a time. Also owns the record's one destructive action: the ✕
+// one layer at a time. Also owns the record's one destructive action: the ⌧
+// (U+2327 "clear key", not ✕ — that reads as close-this-window)
 // swaps the header's right side for the delete-countdown confirm
 // (delete-countdown.ts) — the detail view scopes the delete to exactly the
 // record being looked at.
@@ -107,18 +113,29 @@ function openMorgue(model: CharCardModel, rec: XlogRecord, onDeleted: () => void
   if (dump?.kind !== 'idbfs') return
   const { view, close } = mountCryptShell('records-morgue', `
       <span class="records-morgue-title"></span>
-      <button type="button" class="offline-slot-delete records-morgue-del" aria-label="Delete this record">✕</button>`,
+      <button type="button" class="records-morgue-dl" aria-label="Download morgue file" disabled>↓</button>
+      <button type="button" class="records-morgue-del" aria-label="Delete this record">⌧</button>`,
     '<pre class="records-morgue-pre">Loading…</pre>')
   view.querySelector<HTMLElement>('.records-morgue-title')!.textContent = cardHeadline(model)
   const pre = view.querySelector<HTMLElement>('.records-morgue-pre')!
+  const dlBtn = view.querySelector<HTMLButtonElement>('.records-morgue-dl')!
+  // ↓ ships as a plain .txt under its real morgue filename. It starts disabled
+  // and arms only once text is in hand, so the text is the handler's closure
+  // rather than state the button's disabled flag has to be kept in sync with.
   void readMorgueText(dump.path).then((text) => {
     if (!view.isConnected) return
     pre.textContent = text ?? 'No morgue file for this game.'
+    if (text == null) return
+    dlBtn.disabled = false
+    dlBtn.addEventListener('click', () => {
+      const name = dump.path.split('/').pop() || 'morgue.txt'
+      downloadPackFile(new File([text], name, { type: 'text/plain' }))
+    })
   }).catch(() => {
     pre.textContent = 'Could not read the morgue file.'
   })
 
-  // Delete confirm: swap title+✕ for Cancel + countdown, in place.
+  // Delete confirm: swap title+↓+⌧ for Cancel + countdown, in place.
   const header = view.querySelector<HTMLElement>('.crypt-header')!
   const titleEl = view.querySelector<HTMLElement>('.records-morgue-title')!
   const xBtn = view.querySelector<HTMLButtonElement>('.records-morgue-del')!
@@ -139,10 +156,11 @@ function openMorgue(model: CharCardModel, rec: XlogRecord, onDeleted: () => void
       })
     })
     cancelBtn.addEventListener('click', () => {
-      confirm.replaceWith(titleEl, xBtn)
+      confirm.replaceWith(titleEl, dlBtn, xBtn)
     })
     confirm.append(cancelBtn, delBtn)
     titleEl.remove()
+    dlBtn.remove()
     xBtn.remove()
     header.append(confirm)
   })

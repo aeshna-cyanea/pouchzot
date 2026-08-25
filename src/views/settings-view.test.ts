@@ -14,6 +14,10 @@ import {
   getPref, LOGIN_SPRITES_CHANGED_EVENT, MONSTER_LIST_MODE_CHANGED_EVENT,
   RENDER_MODE_CHANGED_EVENT, UI_SCALE_CHANGED_EVENT,
 } from '../prefs'
+import {
+  DPAD_SIZE_MAX, DPAD_SIZE_MIN,
+  KEYBOARD_BUTTON_SIZE_MAX, KEYBOARD_BUTTON_SIZE_MIN,
+} from '../ui-scale'
 
 beforeEach(() => {
   localStorage.clear()
@@ -38,6 +42,8 @@ function findButton(label: string, root: ParentNode = document): HTMLButtonEleme
 
 // A segPref radiogroup, by its aria-label (the section heading).
 const segGroup = (label: string) => $(`[aria-label="${label}"]`)!
+const range = (label: string, root: ParentNode = document) =>
+  root.querySelector<HTMLInputElement>(`input[type="range"][aria-label="${label} control"]`)!
 
 // A saved custom set whose first two tabs are 3×3 — a second list row to
 // switch to, and a 3-col source for the editor's grid-widening tests.
@@ -341,18 +347,18 @@ describe('settings overlay', () => {
     try {
       openSettings()
       const [ascii, tiles] = [findButton('ASCII'), findButton('Tiles')]
-      expect(ascii.classList.contains('active')).toBe(true)  // default pref
-      expect(ascii.getAttribute('aria-checked')).toBe('true')
-
-      tiles.click()
-      expect(getPref('mapRenderMode')).toBe('tiles')
-      expect(fired).toHaveBeenCalledTimes(1)
-      expect(tiles.classList.contains('active')).toBe(true)
+      expect(tiles.classList.contains('active')).toBe(true)  // default pref
       expect(tiles.getAttribute('aria-checked')).toBe('true')
-      expect(ascii.classList.contains('active')).toBe(false)
-      expect(ascii.getAttribute('aria-checked')).toBe('false')
 
-      tiles.click()  // already active: no-op, no spurious event
+      ascii.click()
+      expect(getPref('mapRenderMode')).toBe('ascii')
+      expect(fired).toHaveBeenCalledTimes(1)
+      expect(ascii.classList.contains('active')).toBe(true)
+      expect(ascii.getAttribute('aria-checked')).toBe('true')
+      expect(tiles.classList.contains('active')).toBe(false)
+      expect(tiles.getAttribute('aria-checked')).toBe('false')
+
+      ascii.click()  // already active: no-op, no spurious event
       expect(fired).toHaveBeenCalledTimes(1)
     } finally {
       window.removeEventListener(RENDER_MODE_CHANGED_EVENT, fired)
@@ -447,19 +453,17 @@ describe('settings overlay', () => {
 })
 
 describe('size sliders', () => {
-  // Dots within a slider, found by their aria-label (the stop value).
+  // Dots within a discrete message-log slider, found by stop value.
   const dot = (group: HTMLElement, value: number) =>
     group.querySelector<HTMLButtonElement>(`[aria-label="${value}"]`)!
 
-  it('renders all three sliders with the active and stock dots marked', () => {
+  it('renders a continuous D-pad range and both discrete message sliders', () => {
     openSettings()
-    const dpad = segGroup('D-pad size')
-    expect(dpad.querySelectorAll('[role="radio"]')).toHaveLength(5)
-    // fresh install: active IS the stock stop — one dot carries both marks
-    const active = dot(dpad, 3.5)
-    expect(active.classList.contains('active')).toBe(true)
-    expect(active.classList.contains('default')).toBe(true)
-    expect(active.getAttribute('aria-checked')).toBe('true')
+    const dpad = range('D-pad size')
+    expect(dpad.min).toBe(String(DPAD_SIZE_MIN))
+    expect(dpad.max).toBe(String(DPAD_SIZE_MAX))
+    expect(dpad.step).toBe('any')
+    expect(dpad.value).toBe('3.5')
     expect(segGroup('Message log lines').querySelectorAll('[role="radio"]')).toHaveLength(5)
     expect(segGroup('Message log text size').querySelectorAll('[role="radio"]')).toHaveLength(5)
   })
@@ -470,10 +474,10 @@ describe('size sliders', () => {
     expect(nums.map(n => n.textContent)).toEqual(['2', '3', '4', '5', '6'])
   })
 
-  it('labels only the endpoint dots of a worded slider', () => {
+  it('shows the current continuous D-pad value', () => {
     openSettings()
-    const nums = [...segGroup('D-pad size').querySelectorAll('.set-slider-num')]
-    expect(nums.map(n => n.textContent)).toEqual(['Tiny', 'Chunky'])
+    expect(range('D-pad size').closest('.set-range')!.querySelector('output')!.textContent)
+      .toBe('3.50 rem')
   })
 
   it('renders the font slider ends as "Aa" specimens at the true stop sizes', () => {
@@ -484,17 +488,13 @@ describe('size sliders', () => {
     for (const n of ends) expect(n.classList.contains('set-slider-spec')).toBe(true)
   })
 
-  it('tapping a dot stores the pref and moves the marks', () => {
+  it('dragging the D-pad range stores an exact intermediate value', () => {
     openSettings()
-    const dpad = segGroup('D-pad size')
-    dot(dpad, 3.9).click()
-    expect(getPref('dpadSize')).toBe(3.9)
-    expect(dot(dpad, 3.9).classList.contains('active')).toBe(true)
-    expect(dot(dpad, 3.9).getAttribute('aria-checked')).toBe('true')
-    expect(dot(dpad, 3.5).classList.contains('active')).toBe(false)
-    expect(dot(dpad, 3.5).getAttribute('aria-checked')).toBe('false')
-    // the stock stop keeps its hollow-ring marker after moving off it
-    expect(dot(dpad, 3.5).classList.contains('default')).toBe(true)
+    const dpad = range('D-pad size')
+    dpad.value = '3.73'
+    dpad.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(getPref('dpadSize')).toBe(3.73)
+    expect(dpad.closest('.set-range')!.querySelector('output')!.textContent).toBe('3.73 rem')
   })
 
   it('fires the ui-scale live-apply event on change', () => {
@@ -513,11 +513,11 @@ describe('size sliders', () => {
     expect(dot(segGroup('Message log text size'), 0.7).classList.contains('active')).toBe(true)
   })
 
-  it('re-tapping the active dot is a no-op (no write, no event)', () => {
+  it('re-inputting the current continuous value is a no-op', () => {
     openSettings()
     const seen = vi.fn()
     window.addEventListener(UI_SCALE_CHANGED_EVENT, seen)
-    dot(segGroup('D-pad size'), 3.5).click()
+    range('D-pad size').dispatchEvent(new Event('input', { bubbles: true }))
     expect(seen).not.toHaveBeenCalled()
     window.removeEventListener(UI_SCALE_CHANGED_EVENT, seen)
   })
@@ -570,8 +570,17 @@ describe('floating size palette', () => {
     adjustButtons()[0].click()
     expect(document.querySelector('.settings-card')).toBeNull()
     const palette = document.querySelector<HTMLElement>('.size-palette')!
-    expect(palette.querySelectorAll('[role="radiogroup"]')).toHaveLength(3)
-    palette.querySelector<HTMLButtonElement>('[aria-label="D-pad size"] [aria-label="3.7"]')!.click()
+    expect(palette.querySelectorAll('[role="radiogroup"]')).toHaveLength(2)
+    const dpad = range('D-pad size', palette)
+    const keyboard = range('Keyboard button size', palette)
+    expect([dpad.min, dpad.max, dpad.step]).toEqual([
+      String(DPAD_SIZE_MIN), String(DPAD_SIZE_MAX), 'any',
+    ])
+    expect([keyboard.min, keyboard.max, keyboard.step]).toEqual([
+      String(KEYBOARD_BUTTON_SIZE_MIN), String(KEYBOARD_BUTTON_SIZE_MAX), 'any',
+    ])
+    dpad.value = '3.7'
+    dpad.dispatchEvent(new Event('input', { bubbles: true }))
     expect(getPref('dpadSize')).toBe(3.7)
   })
 

@@ -1,8 +1,13 @@
 // @vitest-environment happy-dom
 
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { fakeStorage } from '../test/fake-storage'
+
+vi.stubGlobal('localStorage', fakeStorage())
+
 import { buildGameView, type SpectateTarget } from './game-view'
 import { ENABLE_SPELL_TAB } from '../game/input/touch'
+import { setPref } from '../prefs'
 import type { WsConnection } from '../ws/connection'
 import type { ServerMsg, ClientMsg, GameExit } from '../ws/types'
 import type { MapStore } from '../game/map/map-store'
@@ -27,6 +32,13 @@ interface Harness {
   dispatch: (msg: unknown) => void
 }
 
+// These coordinator tests exercise protocol and overlay behavior, not canvas
+// rendering. Keep them on ASCII while the user-facing default remains Tiles.
+beforeEach(() => {
+  localStorage.clear()
+  setPref('mapRenderMode', 'ascii')
+})
+
 function setup(spectating?: SpectateTarget): Harness {
   const send = vi.fn()
   const conn = {
@@ -48,11 +60,31 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
+// Offline variant: wires the readMorgue seam the way app.ts does from
+// boot.readMorgue (positional tail of buildGameView).
+function setupOffline(readMorgue: (f: string) => Promise<Uint8Array<ArrayBuffer> | null>): Harness {
+  const send = vi.fn()
+  const conn = {
+    wsUrl: 'local://offline',
+    httpBase: '',
+    onMessage: (() => {}) as (msg: ServerMsg) => void,
+    onClose: () => {},
+    onOpen: () => {},
+    send,
+    close: vi.fn(),
+  } as unknown as WsConnection
+  const onLobby = vi.fn()
+  const view = buildGameView(conn, onLobby, undefined, undefined, 'Dumptest', 'offline', false, readMorgue)
+  document.body.appendChild(view)
+  return { view, send, onLobby, dispatch: (msg) => conn.onMessage(msg as ServerMsg) }
+}
+
 // --- small DOM helpers, scoped to the view under test ---
 const hud = (h: Harness) => h.view.querySelector<HTMLElement>('#game-hud')!
 const msgLog = (h: Harness) => h.view.querySelector<HTMLElement>('#game-messages')!
 const overlay = (h: Harness) => h.view.querySelector<HTMLElement>('#ui-overlay')!
 const moreBtn = (h: Harness) => h.view.querySelector<HTMLElement>('#more-btn')!
+const moreLine = (h: Harness) => h.view.querySelector<HTMLElement>('#msg-more')
 const isHidden = (el: HTMLElement) => el.style.display === 'none'
 const sent = (h: Harness): ClientMsg[] => h.send.mock.calls.map(c => c[0] as ClientMsg)
 const msgRows = (h: Harness) => [...msgLog(h).querySelectorAll<HTMLElement>('.game-msg')]
@@ -87,20 +119,182 @@ describe('message log (msgs)', () => {
     expect(sent(h)).toContainEqual({ msg: 'input', text: 'S' })
   })
 
-  it('shows the — more — button on more:true and the click sends Space (keycode 32)', () => {
+  // The offline '#' dump line: {msg:'dump'} (mini-server synthesis) arms the
+  // stem, and the engine's "Char dumped to '<path>'." line renders verbatim
+  // as a whole-line tap target. The row PRE-READS through the readMorgue
+  // seam and only becomes tappable (msg-dump-link) once the bytes land, so
+  // the tap's download stays synchronous inside its user activation.
+  it('renders the dump line verbatim and arms it after the pre-read', async () => {
+    const reads: string[] = []
+    const readMorgue = (f: string): Promise<Uint8Array<ArrayBuffer> | null> => {
+      reads.push(f)
+      return Promise.resolve(new Uint8Array(new ArrayBuffer(4)))
+    }
+    const h = setupOffline(readMorgue)
+    h.dispatch({ msg: 'dump', filename: 'Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: "<lightgrey>Char dumped to '/crawl/morgue/Dumptest.txt'." }] })
+    const row = msgRows(h)[0]
+    expect(row.textContent).toContain("Char dumped to '/crawl/morgue/Dumptest.txt'.")
+    // Pre-read happens at row creation, not on tap.
+    expect(reads).toEqual(['Dumptest'])
+    expect(row.classList.contains('msg-dump-link')).toBe(false)
+    await Promise.resolve()
+    expect(row.classList.contains('msg-dump-link')).toBe(true)
+  })
+
+  it('leaves the dump line a plain row when the pre-read fails', async () => {
+    const h = setupOffline(() => Promise.resolve(null))
+    h.dispatch({ msg: 'dump', filename: 'Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: "<lightgrey>Char dumped to '/crawl/morgue/Dumptest.txt'." }] })
+    await Promise.resolve()
+    expect(msgLog(h).querySelector('.msg-dump-link')).toBeNull()
+  })
+
+  it('expires an unspent arm at the end of the msgs batch', async () => {
+    const h = setupOffline(() => Promise.resolve(new Uint8Array(new ArrayBuffer(4))))
+    h.dispatch({ msg: 'dump', filename: 'Dumptest' })
+    // A batch WITHOUT the dump line spends nothing but expires the arm...
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Welcome back, Dumptest the Chopper.' }] })
+    // ...so a later batch can't mis-decorate a line naming the character.
+    h.dispatch({ msg: 'msgs', messages: [{ text: "Char dumped to '/crawl/morgue/Dumptest.txt'." }] })
+    await Promise.resolve()
+    expect(msgLog(h).querySelector('.msg-dump-link')).toBeNull()
+  })
+
+  it('never decorates a mere name mention, even while armed', async () => {
+    const h = setupOffline(() => Promise.resolve(new Uint8Array(new ArrayBuffer(4))))
+    h.dispatch({ msg: 'dump', filename: 'Dumptest' })
+    h.dispatch({
+      msg: 'msgs',
+      messages: [
+        { text: 'Increase (S)trength, Dumptest?', channel: 2 },
+        { text: "Char dumped to '/crawl/morgue/Dumptest.txt'." },
+      ],
+    })
+    await Promise.resolve()
+    // The channel-2 prompt kept its prompt treatment; only the dump line
+    // became the tap target.
+    expect(msgLog(h).querySelector('.game-prompt')).toBeTruthy()
+    expect(msgRows(h)[0].classList.contains('msg-dump-link')).toBe(true)
+    expect(msgLog(h).querySelectorAll('.msg-dump-link').length).toBe(1)
+  })
+
+  it('renders the dump line plain when no readMorgue seam exists (online)', async () => {
     const h = setup()
-    expect(isHidden(moreBtn(h))).toBe(true)
+    h.dispatch({ msg: 'dump', filename: 'Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: "<lightgrey>Char dumped to '/crawl/morgue/Dumptest.txt'." }] })
+    await Promise.resolve()
+    expect(msgLog(h).querySelector('.msg-dump-link')).toBeNull()
+    expect(msgRows(h)[0].textContent).toContain("'/crawl/morgue/Dumptest.txt'")
+  })
+
+  // The online '#' dump: {msg:'dump', url} (process_handler.py broadcast on
+  // morgue_url servers) links the DGAMELAUNCH "Char dumped successfully."
+  // line to url + '.txt'. The broadcast rides the control socket while the
+  // line rides the message flush, so BOTH arrival orders must decorate.
+  it('links the online dump line to the morgue URL (broadcast first)', () => {
+    const h = setup()
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    h.dispatch({ msg: 'dump', url: 'https://test.example/morgue/Dumptest/Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    const row = msgRows(h)[0]
+    expect(row.classList.contains('msg-dump-link')).toBe(true)
+    row.click()
+    expect(open).toHaveBeenCalledWith(
+      'https://test.example/morgue/Dumptest/Dumptest.txt', '_blank', 'noopener')
+    open.mockRestore()
+  })
+
+  it('decorates retroactively when the line beat the broadcast', () => {
+    const h = setup()
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    h.dispatch({ msg: 'dump', url: 'https://test.example/morgue/Dumptest/Dumptest' })
+    expect(msgRows(h)[0].classList.contains('msg-dump-link')).toBe(true)
+  })
+
+  it('an online arm survives intervening batches and never marks other lines', () => {
+    const h = setup()
+    h.dispatch({ msg: 'dump', url: 'https://test.example/morgue/Dumptest/Dumptest' })
+    // Unlike the offline stem arm (name-collision risk → batch expiry), the
+    // URL arm waits out unrelated flushes for its unmistakable line.
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'You feel a bit more hopeful.' }] })
+    expect(msgLog(h).querySelector('.msg-dump-link')).toBeNull()
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    expect(msgRows(h)[0].classList.contains('msg-dump-link')).toBe(true)
+  })
+
+  it('a retro decorate does not spend the arm: a replayed stale dump line plus a fresh one both link', () => {
+    const h = setup()
+    // Attach/reconnect history replay can land an old dump line as the
+    // newest row, plain (it was never armed). The retro path links it, but
+    // the arm must survive so the real line — still in flight — links too.
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    h.dispatch({ msg: 'dump', url: 'https://test.example/morgue/Dumptest/Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    expect(msgLog(h).querySelectorAll('.msg-dump-link').length).toBe(2)
+    expect(msgRows(h)[0].classList.contains('msg-dump-link')).toBe(true)
+  })
+
+  it('a second dump links its own line, not the previous one again', () => {
+    const h = setup()
+    h.dispatch({ msg: 'dump', url: 'https://test.example/morgue/Dumptest/Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    h.dispatch({ msg: 'dump', url: 'https://test.example/morgue/Dumptest/Dumptest' })
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'Char dumped successfully.' }] })
+    expect(msgLog(h).querySelectorAll('.msg-dump-link').length).toBe(2)
+  })
+
+  it('inlines --more-- as the log-bottom row on more:true and a log tap sends Space', () => {
+    const h = setup()
+    expect(moreLine(h)).toBeNull()
     h.dispatch({ msg: 'msgs', messages: [{ text: 'hi' }], more: true })
-    expect(isHidden(moreBtn(h))).toBe(false)
-    moreBtn(h).click()
+    expect(h.view.classList.contains('more-active')).toBe(true)
+    // column-reverse: firstChild = visual bottom, where --more-- belongs
+    expect(msgLog(h).firstElementChild).toBe(moreLine(h))
+    expect(isHidden(moreBtn(h))).toBe(true)  // button is the X-mode fallback only
+    msgLog(h).click()
     expect(sent(h)).toContainEqual({ msg: 'key', keycode: 32 })
   })
 
-  it('hides the — more — button on more:false', () => {
+  it('removes the --more-- row on more:false and returns the log tap to scrollback', () => {
     const h = setup()
     h.dispatch({ msg: 'msgs', messages: [{ text: 'hi' }], more: true })
     h.dispatch({ msg: 'msgs', messages: [], more: false })
+    expect(moreLine(h)).toBeNull()
+    expect(h.view.classList.contains('more-active')).toBe(false)
+    msgLog(h).click()
+    expect(sent(h)).toContainEqual({ msg: 'key', keycode: 16 })
+  })
+
+  it('a batch without a more key keeps the row attached below the new messages', () => {
+    const h = setup()
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'hi' }], more: true })
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'later' }] })
+    expect(msgLog(h).firstElementChild).toBe(moreLine(h))
+    expect(msgTexts(h)).toEqual(['hi', 'later'])
+  })
+
+  it('rollback removes messages, never the --more-- row', () => {
+    const h = setup()
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'keep' }, { text: 'stale' }], more: true })
+    h.dispatch({ msg: 'msgs', rollback: 1, messages: [{ text: 'fresh' }] })
+    expect(msgTexts(h)).toEqual(['keep', 'fresh'])
+    expect(msgLog(h).firstElementChild).toBe(moreLine(h))
+  })
+
+  it('in X mode --more-- falls back to the floating button (log is hidden)', () => {
+    const h = setup()
+    h.dispatch({ msg: 'cursor', id: 2, loc: { x: 5, y: 5 } })  // enter X mode
+    h.dispatch({ msg: 'msgs', messages: [{ text: 'hi' }], more: true })
+    expect(isHidden(moreBtn(h))).toBe(false)
+    expect(moreLine(h)).toBeNull()
+    expect(h.view.classList.contains('more-active')).toBe(false)
+    moreBtn(h).click()
+    expect(sent(h)).toContainEqual({ msg: 'key', keycode: 32 })
+    // leaving X mode with the pager still up swaps back to the inline row
+    h.dispatch({ msg: 'cursor', id: 2 })
     expect(isHidden(moreBtn(h))).toBe(true)
+    expect(msgLog(h).firstElementChild).toBe(moreLine(h))
   })
 })
 
@@ -690,6 +884,24 @@ describe('menu handler', () => {
     expect(isHidden(overlay(h))).toBe(true)
   })
 
+  // Resume-with-no-skill-training: files.cc check_selected_skills opens the
+  // skills CRT before need_save is set, so its teardown is a bare close_menu
+  // with NO trailing close_all_menus (redraw_screen early-returns). The CRT
+  // must end on that close alone or the map never comes back.
+  it('a bare close_menu ends a CRT screen (no close_all_menus follows on load)', () => {
+    const h = setup()
+    h.dispatch({ msg: 'menu', type: 'crt', tag: 'skills' })
+    h.dispatch({ msg: 'txt', id: 1, lines: { '0': 'Skill screen' } })
+    expect(isHidden(overlay(h))).toBe(false)
+    h.dispatch({ msg: 'close_menu' })
+    expect(isHidden(overlay(h))).toBe(true)
+    expect(overlay(h).querySelector('#crt-display')).toBeNull()
+    // A later regular menu must not resurrect the dead CRT when it closes.
+    h.dispatch({ msg: 'menu', tag: 'inventory', title: { text: 'Inventory' }, items: [] })
+    h.dispatch({ msg: 'close_menu' })
+    expect(isHidden(overlay(h))).toBe(true)
+  })
+
   // The reference client keeps a covered menu's DOM (and thus its scroll)
   // alive in its popup stack; our single overlay frame rebuilds the list, so
   // showMenu saves/restores the offset explicitly (menuScrollTops).
@@ -1145,12 +1357,13 @@ describe('X-mode (eXamine level map) via cursor', () => {
 })
 
 describe('input_mode COMMAND transition', () => {
-  it('hides the more button on the return to normal play (mode 1)', () => {
+  it('clears --more-- on the return to normal play (mode 1)', () => {
     const h = setup()
     h.dispatch({ msg: 'msgs', messages: [{ text: 'hi' }], more: true })
-    expect(isHidden(moreBtn(h))).toBe(false)
+    expect(moreLine(h)).toBeTruthy()
     h.dispatch({ msg: 'input_mode', mode: 1 })
-    expect(isHidden(moreBtn(h))).toBe(true)
+    expect(moreLine(h)).toBeNull()
+    expect(h.view.classList.contains('more-active')).toBe(false)
   })
 
   it('marks the most-recent message row with a turn glyph on a player time tick', () => {
@@ -1768,6 +1981,33 @@ describe('monster panel → server selection menu hand-off', () => {
     monsterList(h).click()  // the list is responsive again on the first tap
     expect(isHidden(overlay(h))).toBe(false)
     expect(overlay(h).querySelector('.mp-list')).not.toBeNull()
+  })
+})
+
+// While spectating the panel is tap-anywhere-to-close (see openMonsterPanel):
+// a watcher has no touch-⎋/back affordance on iOS, so a full-screen list had
+// no dismiss target, and a watcher's click_cell is dropped server-side anyway.
+describe('monster panel while spectating', () => {
+  const openPanel = (h: Harness) => {
+    h.dispatch({ msg: 'map', cells: [{ x: 5, y: 5, g: 'o', col: 7, mon: { id: 1, name: 'orc', att: 1, type: 1 } }] })
+    h.view.querySelector<HTMLElement>('#monster-list')!.click()
+    expect(overlay(h).querySelector('.mp-list')).not.toBeNull()
+  }
+
+  it('a row tap closes the panel and sends nothing (no describe click_cell)', () => {
+    const h = setup({ username: 'bob' })
+    openPanel(h)
+    h.send.mockClear()
+    h.view.querySelector<HTMLElement>('.mp-row')!.click()
+    expect(isHidden(overlay(h))).toBe(true)
+    expect(sent(h)).toEqual([])
+  })
+
+  it('a tap in the list padding (inert for players) closes too', () => {
+    const h = setup({ username: 'bob' })
+    openPanel(h)
+    h.view.querySelector<HTMLElement>('.mp-list')!.click()
+    expect(isHidden(overlay(h))).toBe(true)
   })
 })
 

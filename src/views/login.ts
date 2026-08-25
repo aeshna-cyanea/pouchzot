@@ -303,7 +303,7 @@ export function buildLoginView(
       painting?.abort()
       if (getPref('loginSprites')) {
         painting = new AbortController()
-        void paintAvatars(strip, listAvatars(), 2, 'login-avatar', painting.signal)
+        void paintAvatars(strip, listAvatars(), 2, 'login-avatar', { signal: painting.signal })
       } else {
         painting = null
         strip.innerHTML = ''

@@ -14,7 +14,7 @@ export const RENDER_MODE_CHANGED_EVENT = 'pocketzot:render-mode-changed'
 // sprites (settings opens over the still-mounted login view).
 export const MONSTER_LIST_MODE_CHANGED_EVENT = 'pocketzot:monster-list-mode-changed'
 export const LOGIN_SPRITES_CHANGED_EVENT = 'pocketzot:login-sprites-changed'
-// One event for all three size prefs — the sole listener (ui-scale.ts)
+// One event for all size-related prefs — the sole listener (ui-scale.ts)
 // re-reads every stop and rewrites the CSS variables wholesale.
 export const UI_SCALE_CHANGED_EVENT = 'pocketzot:ui-scale-changed'
 
@@ -76,15 +76,8 @@ function load(): Prefs {
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) return { ...DEFAULTS }
-    const parsed = JSON.parse(raw) as Partial<Prefs> & { monsterListCollapsed?: boolean }
-    const prefs = { ...DEFAULTS, ...parsed }
-    // Migrate the pre-tri-state boolean; the stale key lingers in storage
-    // harmlessly. Only while the new key is absent — a later explicit choice
-    // must not be overridden by the old flag.
-    if (parsed.monsterListMode === undefined && parsed.monsterListCollapsed !== undefined) {
-      prefs.monsterListMode = parsed.monsterListCollapsed ? 'collapsed' : 'full'
-    }
-    return prefs
+    const parsed = JSON.parse(raw) as Partial<Prefs>
+    return { ...DEFAULTS, ...parsed }
   } catch {
     return { ...DEFAULTS }
   }

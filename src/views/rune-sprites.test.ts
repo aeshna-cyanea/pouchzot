@@ -1,0 +1,91 @@
+// @vitest-environment happy-dom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fakeStorage } from '../test/fake-storage'
+import { renderOrbTrophy, renderRuneRow } from './rune-sprites'
+import { cachedGamedataBuild } from '../offline/artifact-store'
+import { resolvePlayerLoader } from '../game/tiles/atlas-dedup'
+import { bakeDoll } from '../game/tiles/avatar-bake'
+import { renderTiles } from '../game/tiles/tile-view'
+
+// The row's own logic is the source policy + placeholder swap; everything
+// under it (caches, atlases, canvas) is mocked at its seam.
+vi.mock('../offline/artifact-store', () => ({ cachedGamedataBuild: vi.fn(async () => null) }))
+vi.mock('../game/tiles/atlas-dedup', () => ({ resolvePlayerLoader: vi.fn(async () => null) }))
+const fakeLoader = { getModule: async () => ({ RUNE_TOMB: 10, MISC_RUNE_OF_ZOT: 1, ORB: 20 }) }
+vi.mock('../game/tiles/tile-loader', () => ({
+  TEX: { MAIN: 4 },
+  getTileLoader: vi.fn(() => fakeLoader),
+}))
+vi.mock('../game/tiles/avatar-bake', async (orig) => ({
+  ...(await orig<typeof import('../game/tiles/avatar-bake')>()),
+  bakeDoll: vi.fn(async () => 'data:image/png;base64,AAA'),
+}))
+vi.mock('../game/tiles/tile-view', () => ({
+  CELL: 32, // bakedImg (avatar-tiles) sizes by it; a mocked module throws on missing exports
+  dollTileSpec: vi.fn(() => []),
+  renderTiles: vi.fn(() => {
+    const d = document.createElement('div')
+    d.className = 'tile-stack'
+    return d
+  }),
+}))
+
+const settle = () => new Promise((r) => setTimeout(r, 0))
+const recipe = { doll: [[1, 0]] as [number, number][], mcache: null, httpBase: 'https://x', version: 'v1' }
+
+beforeEach(() => {
+  vi.stubGlobal('localStorage', fakeStorage())
+  // clearAllMocks keeps mockResolvedValue overrides — restore the defaults.
+  vi.mocked(cachedGamedataBuild).mockResolvedValue(null)
+  vi.mocked(resolvePlayerLoader).mockResolvedValue(null)
+})
+afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
+
+describe('renderRuneRow / renderOrbTrophy', () => {
+  it('mounts ASCII item-glyph placeholders synchronously, in the rune colour', () => {
+    const row = renderRuneRow(['golden', 'serpentine'])
+    const cells = [...row.querySelectorAll<HTMLElement>('.rune-cell')]
+    expect(cells.map((c) => c.dataset.rune)).toEqual(['golden', 'serpentine'])
+    expect(cells.map((c) => c.textContent)).toEqual(['φ', 'φ'])  // DCHAR_ITEM_RUNE
+    expect(cells[0].getAttribute('title')).toBe('golden rune')
+    expect(cells[0].querySelector<HTMLElement>('.rune-glyph')?.style.color).not.toBe('')
+    const orb = renderOrbTrophy(null)
+    expect(orb.textContent).toBe('0')                              // DCHAR_ITEM_ORB
+    expect(orb.getAttribute('title')).toBe('Orb of Zot')
+  })
+
+  it('keeps the glyphs when no sprite source is reachable', async () => {
+    const row = renderRuneRow(['golden'], { recipe })
+    await settle()
+    expect(row.querySelector('.rune-glyph')).not.toBeNull()
+    expect(resolvePlayerLoader).toHaveBeenCalledWith('https://x', 'v1')
+  })
+
+  it('bakes once from the on-device pack, then serves the bake', async () => {
+    vi.mocked(cachedGamedataBuild).mockResolvedValue('build1')
+    const row = renderRuneRow(['golden'])
+    const orb = renderOrbTrophy(null)
+    await vi.waitFor(() => expect(row.querySelectorAll('img.doll-bake')).toHaveLength(1))
+    await vi.waitFor(() => expect(orb.querySelectorAll('img.doll-bake')).toHaveLength(1))
+    expect(bakeDoll).toHaveBeenCalledTimes(2) // golden + Orb
+    expect(row.querySelector('.rune-glyph')).toBeNull()
+    // A second row hits the stored bakes: no canvas work, never the recipe atlas.
+    const again = renderRuneRow(['golden'], { recipe })
+    await vi.waitFor(() => expect(again.querySelectorAll('img.doll-bake')).toHaveLength(1))
+    expect(bakeDoll).toHaveBeenCalledTimes(2)
+    expect(resolvePlayerLoader).not.toHaveBeenCalled()
+  })
+
+  it('renders live tile-stacks off the recipe atlas when no pack is on device', async () => {
+    vi.mocked(resolvePlayerLoader).mockResolvedValue(fakeLoader as never)
+    const row = renderRuneRow(['golden', 'mossy'], { recipe })
+    await vi.waitFor(() => expect(row.querySelectorAll('.tile-stack')).toHaveLength(2))
+    expect(bakeDoll).not.toHaveBeenCalled()
+    expect(renderTiles).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(renderTiles).mock.calls[1][1]).toEqual([{ t: 1, tex: 4 }]) // mossy → generic
+  })
+
+  it('renders nothing async for an empty row', () => {
+    expect(renderRuneRow([]).children).toHaveLength(0)
+  })
+})

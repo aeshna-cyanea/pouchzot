@@ -16,10 +16,7 @@ export const DPAD_SIZE_MAX = 5  // rem
 export const KEYBOARD_BUTTON_SIZE_MIN = 1.4  // rem
 export const KEYBOARD_BUTTON_SIZE_MAX = 5    // rem
 
-// Slider stop tables — the pref default sits dead-center of each by design.
-// These tables remain for legacy D-pad setting automation and message-log
-// controls. D-pad and keyboard button sizes are continuous in the UI.
-export const DPAD_STOPS = [3.1, 3.3, 3.5, 3.7, DPAD_SIZE_MAX]  // rem
+// Message-log controls remain discrete; their defaults sit in the center.
 export const MSGLOG_LINE_STOPS = [2, 3, 4, 5, 6]
 export const MSGLOG_FONT_STOPS = [0.65, 0.7, 0.75, 0.8, 0.85]  // rem
 
@@ -35,8 +32,7 @@ export function clampKeyboardButtonSize(value: number): number {
   return clamp(value, KEYBOARD_BUTTON_SIZE_MIN, KEYBOARD_BUTTON_SIZE_MAX)
 }
 
-// Snap to a legal stop — guards hand-edited localStorage and lets the stop
-// tables change shape across versions without a migration. Ties go low.
+// Snap discrete message-log prefs to a legal stop. Ties go low.
 export function nearestStop(stops: readonly number[], v: number): number {
   let best = stops[0]
   for (const s of stops) if (Math.abs(s - v) < Math.abs(best - v)) best = s
@@ -45,7 +41,7 @@ export function nearestStop(stops: readonly number[], v: number): number {
 
 function apply(): void {
   const s = document.documentElement.style
-  const p = getPrefs()  // one storage read, three keys
+  const p = getPrefs()  // one storage read for all size-related prefs
   s.setProperty('--pz-dpad', `${clampDpadSize(p.dpadSize)}rem`)
   s.setProperty('--pz-msglog-lines', String(nearestStop(MSGLOG_LINE_STOPS, p.msglogLines)))
   s.setProperty('--pz-msglog-font', `${nearestStop(MSGLOG_FONT_STOPS, p.msglogFont)}rem`)

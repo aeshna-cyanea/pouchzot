@@ -9,11 +9,13 @@ import { OFFLINE_GAME_ID, validateOfflineName } from './offline/offline-state'
 import {
   attemptResume, clearGameStart, loadPersistedResume, markProactiveClose, rememberGameStart,
 } from './reconnect'
-import { count } from './counter'
+import { count, type CountFlags } from './counter'
+import { getActiveControlSet } from './game/input/control-sets'
 import { getPref } from './prefs'
 import { listSessions, loadSession, sessionExpired } from './auth/session'
 import { SESSION_EXPIRED_NOTICE, tokenLogin } from './auth/token-login'
 import { parseAppRoute, replaceRoute, type OnlineRoute } from './routes'
+import { staleShellReloadOnce } from './util/self-heal'
 
 type AppState = 'login' | 'lobby' | 'game'
 
@@ -180,6 +182,12 @@ async function showOfflineGame(name: string): Promise<void> {
   try {
     bootMod = await import('./offline/boot')
   } catch (e) {
+    // The one production way this import fails is a stale shell whose
+    // boot-chunk hash rotated off the deploy — heal with the offline
+    // context pinned, so the reload lands back in the offline lobby
+    // rather than falling into login/auto-resume (the engine-port worker
+    // path passes the same param for the same reason).
+    if (staleShellReloadOnce({ offline: '1' })) return
     showFatal(`Offline engine failed to load: ${String(e)}`)
     return
   }
@@ -190,7 +198,7 @@ async function showOfflineGame(name: string): Promise<void> {
   // same reason boot.ts excludes them from the slot-record tracker: a golden
   // capture's character isn't yours and must not mint a phantom shelf entry.
   const gameId = params.get('engine') === 'fake' ? '' : OFFLINE_GAME_ID
-  if (gameId) count('play-offline', { ascii: getPref('mapRenderMode') === 'ascii' })
+  if (gameId) count('play-offline', gameStartFlags())
   state = 'game'
   conn = boot.conn
   currentUsername = name
@@ -215,6 +223,7 @@ async function showOfflineGame(name: string): Promise<void> {
     currentUsername,
     gameId,
     currentIsGuest,
+    (filename) => boot.readMorgue(filename),
   ))
   boot.start()
 }
@@ -326,9 +335,19 @@ async function switchSpectateServer(wsUrl: string): Promise<void> {
   enterLobby(next, '', true)
 }
 
+// Session-start facts for the game-start counter rows. U reads the RESOLVED
+// set (getActiveControlSet falls back to builtin Standard on a dangling id),
+// so a deleted custom set doesn't keep counting as custom usage.
+function gameStartFlags(): CountFlags {
+  return {
+    ascii: getPref('mapRenderMode') === 'ascii',
+    userControls: !getActiveControlSet().builtin,
+  }
+}
+
 function showGame(spectating?: SpectateTarget, loader?: TileLoader, gameId?: string): void {
   const resolvedGameId = spectating ? '' : gameId || ''
-  count(spectating ? 'spectate' : 'play', { ascii: getPref('mapRenderMode') === 'ascii' })
+  count(spectating ? 'spectate' : 'play', gameStartFlags())
   state = 'game'
   if (spectating) {
     replaceRoute({
@@ -444,9 +463,12 @@ function setView(el: HTMLElement): void {
   root.appendChild(el)
 }
 
-// Dynamic-import failure surface: a stale SW start doc serving rotated chunk
-// hashes after a deploy makes lazy chunks 404 — that must render something,
-// not leave a blank #app with a silent unhandled rejection.
+// Dynamic-import failure surface of last resort: renders text rather than
+// leaving a blank #app with a silent rejection. Deliberately does NOT
+// attempt the self-heal reload itself — the heal needs the caller's
+// context (the offline-boot catch above passes ?offline=1; a bare reload
+// here would strand an offline user on login or auto-resume an unrelated
+// online game), so call sites heal first and fall through to this.
 function showFatal(text: string): void {
   const el = document.createElement('pre')
   el.style.cssText = 'padding:16px;color:#eeeeec;white-space:pre-wrap'

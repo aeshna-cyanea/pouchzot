@@ -140,6 +140,12 @@ export type ServerMsg =
   // The client must answer with {msg:'force_terminate', answer:boolean};
   // true = SIGABRT the old process (skips saving), false = abort the play.
   | { msg: 'force_terminate?' }
+  // Mid-game '#' character dump. Online servers send `url` (morgue URL sans
+  // extension — process_handler.py builds it from the game's starred dump
+  // line; upstream chat.js shows url+".txt" in chat). Offline the mini-server
+  // synthesizes the same message with `filename` (the dump's stem) instead —
+  // there is no URL, the file lives in the engine's FS.
+  | { msg: 'dump'; url?: string; filename?: string }
   | { msg: 'game_ended'; reason: string; message?: string; dump?: string }
   | { msg: 'go_lobby' }
   | { msg: 'lobby_entry' } & LobbyEntry
@@ -243,7 +249,15 @@ export interface PlayerMsg {
   doom?: number
   contam?: number
   unarmed_attack?: string
+  // Weapon-line colours by era. ≤0.34: unarmed_attack_colour (form uc_colour)
+  // and the wielded item's inventory col. Trunk (0bed8fcdc9, committed
+  // 2026-07-17): weapon_colour/offhand_weapon_colour computed C++-side
+  // (output.cc wielded_weapon_colour — honours `menu_colour += stats:…`,
+  // refreshed on equip), unarmed_attack_colour dropped. Their PRESENCE is the
+  // era signal stats-view.ts gates on (value 0 is a legitimate colour).
   unarmed_attack_colour?: number
+  weapon_colour?: number
+  offhand_weapon_colour?: number
   weapon_index?: number   // 0.33+
   offhand_index?: number  // 0.33+
   // Pre-0.33: equipment as a slot→inventory-index map (keys are
@@ -287,3 +301,8 @@ export type ClientMsg =
   | { msg: 'menu_scroll'; first: number; last: number; hover: number }
   | { msg: 'click_cell'; x: number; y: number; button: 1 | 2 | 3; force?: boolean }
   | { msg: 'formatted_scroller_scroll'; scroll: number }
+  // Newgame-choice focus: moves the server-side OuterMenu cursor so
+  // spectators see our selection. BOTH fields required and type-checked
+  // server-side (tileweb.cc:567 — hotkey must be a number, menu_id a
+  // string; unknown menu_id is a silent no-op).
+  | { msg: 'outer_menu_focus'; hotkey: number; menu_id: string }

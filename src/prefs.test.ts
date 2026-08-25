@@ -20,25 +20,15 @@ describe('prefs defaults', () => {
   })
 })
 
-describe('monsterListCollapsed → monsterListMode migration', () => {
-  it('maps the stored collapsed=true boolean to collapsed', () => {
-    localStorage.setItem(KEY, JSON.stringify({ monsterListCollapsed: true }))
+describe('stored preferences', () => {
+  it('merges current stored values over the defaults', () => {
+    localStorage.setItem(KEY, JSON.stringify({ monsterListMode: 'collapsed' }))
     expect(getPref('monsterListMode')).toBe('collapsed')
+    expect(getPref('loginSprites')).toBe(true)
   })
 
-  it('maps the stored collapsed=false boolean to full', () => {
-    localStorage.setItem(KEY, JSON.stringify({ monsterListCollapsed: false }))
-    expect(getPref('monsterListMode')).toBe('full')
-  })
-
-  it('never overrides an explicit monsterListMode with the stale boolean', () => {
-    localStorage.setItem(KEY,
-      JSON.stringify({ monsterListCollapsed: true, monsterListMode: 'full' }))
-    expect(getPref('monsterListMode')).toBe('full')
-  })
-
-  it('survives a later write to an unrelated pref', () => {
-    localStorage.setItem(KEY, JSON.stringify({ monsterListCollapsed: true }))
+  it('preserves an existing value when writing an unrelated pref', () => {
+    localStorage.setItem(KEY, JSON.stringify({ monsterListMode: 'collapsed' }))
     setPref('loginSprites', false)
     expect(getPref('monsterListMode')).toBe('collapsed')
     expect(getPref('loginSprites')).toBe(false)

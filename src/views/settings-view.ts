@@ -19,7 +19,7 @@ import { dcssToHtml } from '../game/dcss-colors'
 import { DPAD_LAYOUT } from '../game/input/touch'
 import { defaultPref, getPref, setPref, type Prefs } from '../prefs'
 import {
-  DPAD_SIZE_MAX, DPAD_SIZE_MIN, DPAD_STOPS,
+  DPAD_SIZE_MAX, DPAD_SIZE_MIN,
   KEYBOARD_BUTTON_SIZE_MAX, KEYBOARD_BUTTON_SIZE_MIN,
   MSGLOG_FONT_STOPS, MSGLOG_LINE_STOPS, nearestStop,
 } from '../ui-scale'
@@ -264,7 +264,7 @@ function markChecked(group: HTMLElement, chosen: Element): void {
 }
 
 // Numeric prefs whose legal values are a stop table (ui-scale.ts).
-type SliderPrefKey = 'dpadSize' | 'msglogLines' | 'msglogFont'
+type SliderPrefKey = 'msglogLines' | 'msglogFont'
 
 // Discrete slider bound to a stop-table pref: a radiogroup of tap-dots on a
 // track — the page's ordered-magnitude counterpart to segPref's state
@@ -318,15 +318,8 @@ function sliderPref(
   return slider
 }
 
-// One spec per slider, shared by the settings sections and the floating
-// palette so stops, labels, and aria-labels (also test selectors) can't
-// diverge between the two surfaces.
-//
-// The font slider's end labels are specimens, not words: "Aa" at the two
-// extreme stops' TRUE sizes, in the log's mono font (.set-slider-spec) —
-// the ends show exactly what they set. The d-pad slider keeps words: its
-// true sizes are label-row-impossible, and scaled-down glyph stand-ins read
-// worse than "Tiny"/"Chunky" (tried and reverted).
+// Continuous D-pad and keyboard ranges share this implementation so their
+// value display, accessibility label, and live-apply behavior stay aligned.
 type ContinuousSizeKey = 'dpadSize' | 'buttonSize'
 
 function continuousSizePref(
@@ -355,16 +348,8 @@ function continuousSizePref(
   return wrap
 }
 
-const dpadSlider = (): HTMLElement => {
-  const wrap = el('div', 'set-dpad-size-controls')
-  wrap.appendChild(continuousSizePref('D-pad size', 'dpadSize', DPAD_SIZE_MIN, DPAD_SIZE_MAX))
-  // Kept in the DOM only for compatibility with older persisted/settings
-  // automation; the user-facing control above is the continuous range.
-  const legacy = sliderPref('D-pad size', 'dpadSize', DPAD_STOPS, { ends: ['Tiny', 'Chunky'] })
-  legacy.classList.add('set-legacy-compat')
-  wrap.appendChild(legacy)
-  return wrap
-}
+const dpadSlider = (): HTMLElement =>
+  continuousSizePref('D-pad size', 'dpadSize', DPAD_SIZE_MIN, DPAD_SIZE_MAX)
 const msglogLinesSlider = () =>
   sliderPref('Message log lines', 'msglogLines', MSGLOG_LINE_STOPS, { numbered: true })
 const msglogFontSlider = () =>

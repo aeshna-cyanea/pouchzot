@@ -183,6 +183,28 @@ describe('mini-server client→engine routing', () => {
   })
 })
 
+describe('mini-server dump routing', () => {
+  // Upstream parity: the Python server turns a type-"command" starred dump
+  // into a client {msg:"dump"} broadcast (process_handler.py:1180) — ours
+  // carries the filename stem instead of a URL.
+  it("synthesizes a client dump message for '#' command dumps", () => {
+    const { port, delivered, mini } = harness()
+    mini.start()
+    delivered.length = 0
+    port.onOutput('*{"msg":"dump","type":"command","filename":"Tester"}\n')
+    expect(delivered).toEqual([{ msg: 'dump', filename: 'Tester' }])
+  })
+
+  it('ignores the end-of-game dump types', () => {
+    const { port, delivered, mini } = harness()
+    mini.start()
+    delivered.length = 0
+    port.onOutput('*{"msg":"dump","type":"morgue","filename":"morgue-Tester-20260817-120000"}\n')
+    port.onOutput('*{"msg":"dump","type":"save","filename":"Tester"}\n')
+    expect(delivered).toEqual([])
+  })
+})
+
 describe('mini-server engine→client relay', () => {
   it('splits newline-batched chunks and delivers each message in order, synchronously', () => {
     const { port, delivered, mini } = harness()
