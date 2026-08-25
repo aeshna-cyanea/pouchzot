@@ -259,6 +259,82 @@ describe('hold-to-repeat', () => {
   })
 })
 
+describe('virtual keyboard modifier multitouch', () => {
+  const touchEvent = (type: string) => new Event(type, { bubbles: true, cancelable: true })
+
+  const kbdKey = (root: HTMLElement, text: string) =>
+    [...root.querySelectorAll<HTMLElement>('#kbd-overlay .kbd-key')]
+      .find(b => b.textContent === text)!
+
+  it('keeps Shift active while another finger taps multiple letters', () => {
+    const { tc, sent } = setup()
+    tc.openKbd()
+    const shift = kbdKey(tc.element, '⇧')
+    const q = kbdKey(tc.element, 'q')
+    const w = kbdKey(tc.element, 'w')
+
+    shift.dispatchEvent(touchEvent('touchstart'))
+    expect(shift.classList.contains('active')).toBe(true)
+    q.dispatchEvent(touchEvent('touchstart'))
+    q.dispatchEvent(touchEvent('touchend'))
+    w.dispatchEvent(touchEvent('touchstart'))
+    w.dispatchEvent(touchEvent('touchend'))
+    expect(sent).toEqual([
+      { msg: 'input', text: 'Q' },
+      { msg: 'input', text: 'W' },
+    ])
+
+    shift.dispatchEvent(touchEvent('touchend'))
+    expect(shift.classList.contains('active')).toBe(false)
+    q.dispatchEvent(touchEvent('touchstart'))
+    q.dispatchEvent(touchEvent('touchend'))
+    expect(sent.at(-1)).toEqual({ msg: 'input', text: 'q' })
+  })
+
+  it('keeps Ctrl active while another finger taps multiple captured letters', () => {
+    const { tc, sent } = setup()
+    tc.openKbd()
+    const ctrl = kbdKey(tc.element, '⌃')
+    const q = kbdKey(tc.element, 'q')
+    const p = kbdKey(tc.element, 'p')
+
+    ctrl.dispatchEvent(touchEvent('touchstart'))
+    q.dispatchEvent(touchEvent('touchstart'))
+    q.dispatchEvent(touchEvent('touchend'))
+    p.dispatchEvent(touchEvent('touchstart'))
+    p.dispatchEvent(touchEvent('touchend'))
+    expect(sent).toEqual([
+      { msg: 'key', keycode: 17 },
+      { msg: 'key', keycode: 16 },
+    ])
+
+    ctrl.dispatchEvent(touchEvent('touchend'))
+    q.dispatchEvent(touchEvent('touchstart'))
+    q.dispatchEvent(touchEvent('touchend'))
+    expect(sent.at(-1)).toEqual({ msg: 'input', text: 'q' })
+  })
+
+  it('keeps a plain touch tap as the existing one-shot modifier gesture', () => {
+    const { tc, sent } = setup()
+    tc.openKbd()
+    const shift = kbdKey(tc.element, '⇧')
+    const ctrl = kbdKey(tc.element, '⌃')
+    const q = kbdKey(tc.element, 'q')
+
+    shift.dispatchEvent(touchEvent('touchstart'))
+    shift.dispatchEvent(touchEvent('touchend'))
+    q.dispatchEvent(touchEvent('touchstart'))
+    q.dispatchEvent(touchEvent('touchend'))
+    expect(sent[0]).toEqual({ msg: 'input', text: 'Q' })
+
+    ctrl.dispatchEvent(touchEvent('touchstart'))
+    ctrl.dispatchEvent(touchEvent('touchend'))
+    q.dispatchEvent(touchEvent('touchstart'))
+    q.dispatchEvent(touchEvent('touchend'))
+    expect(sent[1]).toEqual({ msg: 'key', keycode: 17 })
+  })
+})
+
 describe('consumeShift — spell-rail force-cast hook', () => {
   const shiftBtn = (root: HTMLElement) =>
     root.querySelector<HTMLButtonElement>('.tc-shift')!

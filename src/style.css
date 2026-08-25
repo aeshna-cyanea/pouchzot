@@ -3863,6 +3863,9 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   flex-direction: column;
   align-items: center;
   gap: 0.3rem;
+  /* The keyboard has no scrollable surface. Keep all contacts in the page so
+     one finger can hold a modifier while another finger taps letters. */
+  touch-action: none;
   /* Single base for all key text. Letters use 1em, glyph keys a fixed em
      bump and corner marks a fixed em fraction — so every label scales from
      this one value and stays in proportion across orientations (no vw). */
@@ -3904,7 +3907,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   justify-content: center;
   user-select: none;
   -webkit-user-select: none;
-  touch-action: manipulation;
+  touch-action: none;
   width: var(--kbd-key-w);
   height: var(--kbd-key-h);
   padding: 0;

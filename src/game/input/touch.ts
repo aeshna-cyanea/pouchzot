@@ -34,8 +34,18 @@ type DpadDef =
   | { label: string; text: string }
 
 // Binds one control's engagement (see bindTap in buildTouchControls).
-// `repeat` opts a control into hold-to-repeat on the touch path.
-type BindTap = (btn: HTMLElement, fire: () => void, opts?: { repeat?: boolean }) => void
+// `repeat` opts a control into hold-to-repeat on the touch path. `hold` is for
+// modifiers: touchstart/touchend are exposed separately so a modifier can stay
+// active while another finger taps keys.
+type BindTap = (
+  btn: HTMLElement,
+  fire: () => void,
+  opts?: BindOpts,
+) => void
+type BindOpts = {
+  repeat?: boolean
+  hold?: { start: () => void; end: () => void; cancel: () => void }
+}
 
 // Hold-to-repeat pacing, roughly matching OS keyboard auto-repeat defaults.
 export const REPEAT_DELAY_MS = 350
@@ -97,8 +107,9 @@ export const DPAD_LAYOUT: DpadDef[][] = [
 // custom sets swap in user-defined keys, grid widths, and tab labels.
 
 // Virtual QWERTY keyboard overlay. Letter and symbol layers, sticky Shift
-// (tap = once, double-tap = locked, tap from lock = off) and one-shot Ctrl,
-// [123]/[ABC] toggle. Replaces the touch-controls strip while open.
+// (tap = once, double-tap = locked, tap from lock = off), one-shot Ctrl, and
+// touch-held modifiers for multitouch entry. [123]/[ABC] toggles the layer.
+// Replaces the touch-controls strip while open.
 function buildKeyboardOverlay(
   send: SendFn,
   bindTap: BindTap,
@@ -106,6 +117,13 @@ function buildKeyboardOverlay(
   type Layer = 'letters' | 'symbols'
   let layer: Layer = 'letters'
   let ctrlActive = false
+  // Sticky modifiers are useful for single-finger play. Keep physical touch
+  // engagement separate so a held modifier survives clearOneshot() and can
+  // modify several keys tapped by another finger.
+  let heldShift = false
+  let heldCtrl = false
+  let heldShiftUsed = false
+  let heldCtrlUsed = false
 
   const overlay = document.createElement('div')
   overlay.id = 'kbd-overlay'
@@ -120,14 +138,17 @@ function buildKeyboardOverlay(
 
   const shift = createShiftToggle({ onChange: refreshMods })
 
+  const shiftOn = (): boolean => shift.isOn || heldShift
+  const ctrlOn = (): boolean => ctrlActive || heldCtrl
+
   function refreshMods(): void {
     for (const b of shiftBtns) {
-      b.classList.toggle('active', shift.state === 'once')
+      b.classList.toggle('active', shift.state === 'once' || heldShift)
       b.classList.toggle('locked', shift.state === 'lock')
     }
-    for (const b of ctrlBtns) b.classList.toggle('active', ctrlActive)
-    overlay.classList.toggle('shift-on', shift.isOn)
-    overlay.classList.toggle('ctrl-on', ctrlActive)
+    for (const b of ctrlBtns) b.classList.toggle('active', ctrlOn())
+    overlay.classList.toggle('shift-on', shiftOn())
+    overlay.classList.toggle('ctrl-on', ctrlOn())
   }
 
   // Called after each key dispatch. Keeps lock engaged across taps; clears
@@ -141,11 +162,73 @@ function buildKeyboardOverlay(
   }
 
   function clearAllMods(): void {
+    // A touchend can be lost when the keyboard closes or the page loses the
+    // foreground. Mark the abandoned contact as used so a late touchend does
+    // not turn the modifier back on as if it had been a tap.
+    heldShift = false
+    heldCtrl = false
+    heldShiftUsed = true
+    heldCtrlUsed = true
     shift.reset()
     if (ctrlActive) {
       ctrlActive = false
       refreshMods()
     }
+  }
+
+  function beginShiftHold(): void {
+    heldShift = true
+    heldShiftUsed = false
+    // Keep the two virtual modifiers mutually exclusive, as their sticky
+    // controls already are.
+    if (ctrlActive || heldCtrl) {
+      ctrlActive = false
+      heldCtrl = false
+      heldCtrlUsed = true
+    }
+    refreshMods()
+  }
+
+  function endShiftHold(): void {
+    heldShift = false
+    // A touch that never combined with another key is the old sticky Shift
+    // tap. A touch used as a modifier is temporary and ends on release.
+    if (!heldShiftUsed) toggleShift()
+    refreshMods()
+  }
+
+  function cancelShiftHold(): void {
+    heldShift = false
+    heldShiftUsed = true
+    refreshMods()
+  }
+
+  function beginCtrlHold(): void {
+    heldCtrl = true
+    heldCtrlUsed = false
+    if (heldShift || shift.isOn) {
+      heldShift = false
+      heldShiftUsed = true
+      shift.reset()
+    }
+    refreshMods()
+  }
+
+  function endCtrlHold(): void {
+    heldCtrl = false
+    if (!heldCtrlUsed) toggleCtrl()
+    refreshMods()
+  }
+
+  function cancelCtrlHold(): void {
+    heldCtrl = false
+    heldCtrlUsed = true
+    refreshMods()
+  }
+
+  function markHeldModifierUsed(): void {
+    if (heldShift) heldShiftUsed = true
+    if (heldCtrl) heldCtrlUsed = true
   }
 
   // Shift and Ctrl are mutually exclusive on the kbd: arming one disarms the
@@ -202,18 +285,20 @@ function buildKeyboardOverlay(
   }
 
   function dispatchChar(ch: string, shifted?: string): void {
-    const shiftOn = shift.isOn
+    const shiftActive = shiftOn()
+    const ctrlActiveNow = ctrlOn()
+    markHeldModifierUsed()
     const input = activeTextInput()
-    if (input && !ctrlActive) {
-      const out = shiftOn ? (shifted !== undefined ? shifted : ch.toUpperCase()) : ch
+    if (input && !ctrlActiveNow) {
+      const out = shiftActive ? (shifted !== undefined ? shifted : ch.toUpperCase()) : ch
       typeIntoInput(input, out)
       clearOneshot()
       return
     }
-    if (shiftOn) {
+    if (shiftActive) {
       const out = shifted !== undefined ? shifted : ch.toUpperCase()
       send({ msg: 'input', text: out })
-    } else if (ctrlActive) {
+    } else if (ctrlActiveNow) {
       const upper = ch.toUpperCase()
       if (CAPTURED_CTRL.has(upper)) {
         send({ msg: 'key', keycode: ctrlKeycode(upper) })
@@ -227,6 +312,7 @@ function buildKeyboardOverlay(
   }
 
   function dispatchKey(keycode: number, ctrlKeycode?: number): void {
+    markHeldModifierUsed()
     const input = activeTextInput()
     if (input) {
       if (keycode === 8) backspaceInput(input)
@@ -235,13 +321,17 @@ function buildKeyboardOverlay(
       clearOneshot()
       return
     }
-    const code = ctrlActive && ctrlKeycode !== undefined ? ctrlKeycode : keycode
+    const code = ctrlOn() && ctrlKeycode !== undefined ? ctrlKeycode : keycode
     send({ msg: 'key', keycode: code })
     clearOneshot()
   }
 
   function setLayer(next: Layer): void {
     layer = next
+    // Rebuilding removes the old modifier buttons, so any physical holds on
+    // them must not remain engaged across the layer swap.
+    cancelShiftHold()
+    cancelCtrlHold()
     rebuild()
   }
 
@@ -251,7 +341,7 @@ function buildKeyboardOverlay(
   }
 
   function makeBtn(
-    label: string, classes: string, onTap: () => void, opts?: { repeat?: boolean },
+    label: string, classes: string, onTap: () => void, opts?: BindOpts,
   ): HTMLButtonElement {
     const b = document.createElement('button')
     b.className = 'kbd-key' + (classes ? ' ' + classes : '')
@@ -325,7 +415,9 @@ function buildKeyboardOverlay(
   function buildBottomRow(switchLabel: string, nextLayer: Layer): HTMLButtonElement[] {
     const btns: HTMLButtonElement[] = []
     btns.push(makeBtn('⎋', 'wide flex glyph', () => dispatchKey(27)))
-    const cb = makeBtn('⌃', 'mod wide flex glyph', toggleCtrl)
+    const cb = makeBtn('⌃', 'mod wide flex glyph', toggleCtrl, {
+      hold: { start: beginCtrlHold, end: endCtrlHold, cancel: cancelCtrlHold },
+    })
     ctrlBtns.push(cb)
     btns.push(cb)
     btns.push(makeBtn(switchLabel, 'wide flex', () => setLayer(nextLayer)))
@@ -345,7 +437,9 @@ function buildKeyboardOverlay(
       addRow(LETTER_ROW_1.map(c => LETTER_DIRS[c] ? makeLetterBtnWithCorner(c, LETTER_DIRS[c]) : makeLetterBtn(c)))
       addRow(LETTER_ROW_2.map(c => LETTER_DIRS[c] ? makeLetterBtnWithCorner(c, LETTER_DIRS[c]) : makeLetterBtn(c)))
       const r3: HTMLButtonElement[] = []
-      const sb = makeBtn('⇧', 'mod wide flex glyph', toggleShift)
+      const sb = makeBtn('⇧', 'mod wide flex glyph', toggleShift, {
+        hold: { start: beginShiftHold, end: endShiftHold, cancel: cancelShiftHold },
+      })
       shiftBtns.push(sb); r3.push(sb)
       for (const c of LETTER_ROW_3) r3.push(LETTER_DIRS[c] ? makeLetterBtnWithCorner(c, LETTER_DIRS[c]) : makeLetterBtn(c))
       r3.push(makeBtn('⌫', 'wide flex glyph', () => dispatchKey(8, CK_CTRL_BKSP), { repeat: true }))
@@ -355,7 +449,9 @@ function buildKeyboardOverlay(
       addRow(SYMBOL_ROW_1.map(c => makeCharBtn(c, c)))
       addRow(SYMBOL_ROW_2.map(c => makeCharBtn(c, c)))
       const r3: HTMLButtonElement[] = []
-      const sb = makeBtn('⇧', 'mod wide flex glyph', toggleShift)
+      const sb = makeBtn('⇧', 'mod wide flex glyph', toggleShift, {
+        hold: { start: beginShiftHold, end: endShiftHold, cancel: cancelShiftHold },
+      })
       shiftBtns.push(sb); r3.push(sb)
       for (const [ch, sh] of SYMBOL_ROW_3) r3.push(makeShiftedCharBtn(ch, sh))
       r3.push(makeBtn('⌫', 'wide flex glyph', () => dispatchKey(8, CK_CTRL_BKSP), { repeat: true }))
@@ -447,7 +543,7 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
     document.addEventListener(type, onDocTouch, { capture: true, passive: true })
   }
 
-  // --- Repeat runaway guard ---
+  // --- Touch engagement runaway guard ---
   // A held key's touchend is NOT guaranteed: iOS can present system UI over
   // the page mid-press (observed on-device 2026-08-17: a share sheet opened
   // by the '#' dump download swallowed the lift, and the repeat timers
@@ -461,13 +557,40 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
   // destroy(), like onDocTouch above.
   const repeatStops = new Set<() => void>()
   const stopAllRepeats = (): void => { for (const stop of repeatStops) stop() }
-  const onVisibilityRepeat = (): void => { if (document.hidden) stopAllRepeats() }
-  document.addEventListener('visibilitychange', onVisibilityRepeat)
-  window.addEventListener('blur', stopAllRepeats)
-  window.addEventListener('pagehide', stopAllRepeats)
+  const holdStops = new Set<() => void>()
+  const stopAllHolds = (): void => { for (const stop of holdStops) stop() }
+  const stopAllTouchEngagements = (): void => {
+    stopAllRepeats()
+    stopAllHolds()
+  }
+  const onVisibilityTouch = (): void => { if (document.hidden) stopAllTouchEngagements() }
+  document.addEventListener('visibilitychange', onVisibilityTouch)
+  window.addEventListener('blur', stopAllTouchEngagements)
+  window.addEventListener('pagehide', stopAllTouchEngagements)
 
   const bindTap: BindTap = (btn, fire, opts) => {
-    if (opts?.repeat) {
+    if (opts?.hold) {
+      let active = false
+      let stopCancelled: () => void
+      const release = (cancelled: boolean): void => {
+        if (!active) return
+        active = false
+        holdStops.delete(stopCancelled)
+        if (cancelled) opts.hold!.cancel()
+        else opts.hold!.end()
+      }
+      const stopNormal = (): void => release(false)
+      stopCancelled = (): void => release(true)
+      btn.addEventListener('touchstart', (e) => {
+        e.preventDefault()
+        if (active) return
+        active = true
+        holdStops.add(stopCancelled)
+        opts.hold!.start()
+      }, { passive: false })
+      btn.addEventListener('touchend', stopNormal)
+      btn.addEventListener('touchcancel', stopCancelled)
+    } else if (opts?.repeat) {
       // Hold-to-repeat, touch path only: touch events stay bound to their
       // start element, so this button's own touchend/touchcancel always
       // arrives to stop the timers — even if the finger drifts off the
@@ -785,10 +908,10 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
     for (const type of ['touchstart', 'touchend', 'touchcancel'] as const) {
       document.removeEventListener(type, onDocTouch, { capture: true })
     }
-    stopAllRepeats()
-    document.removeEventListener('visibilitychange', onVisibilityRepeat)
-    window.removeEventListener('blur', stopAllRepeats)
-    window.removeEventListener('pagehide', stopAllRepeats)
+    stopAllTouchEngagements()
+    document.removeEventListener('visibilitychange', onVisibilityTouch)
+    window.removeEventListener('blur', stopAllTouchEngagements)
+    window.removeEventListener('pagehide', stopAllTouchEngagements)
   }
 
   function enterXMode(): void {

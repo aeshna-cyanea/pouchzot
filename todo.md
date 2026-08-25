@@ -1,6 +1,3 @@
-multitouch
-	support for holding modifier keys while tapping letters
-
 other touch controls
 	tap to walk around like in webtiles
 		option for safe navigation (maybe by sending the keys X > a sequence of direction keys to navigate to the tapped tile > enter).
