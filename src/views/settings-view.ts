@@ -18,7 +18,11 @@ import type { ControlSet, ControlTabDef, SlotDef } from '../game/input/control-s
 import { dcssToHtml } from '../game/dcss-colors'
 import { DPAD_LAYOUT } from '../game/input/touch'
 import { defaultPref, getPref, setPref, type Prefs } from '../prefs'
-import { DPAD_STOPS, MSGLOG_FONT_STOPS, MSGLOG_LINE_STOPS, nearestStop } from '../ui-scale'
+import {
+  DPAD_SIZE_MAX, DPAD_SIZE_MIN, DPAD_STOPS,
+  KEYBOARD_BUTTON_SIZE_MAX, KEYBOARD_BUTTON_SIZE_MIN,
+  MSGLOG_FONT_STOPS, MSGLOG_LINE_STOPS, nearestStop,
+} from '../ui-scale'
 import { openGesturesDoc } from './docs'
 
 // Close handle of the last-mounted settings card, for surfaces that replace
@@ -323,8 +327,44 @@ function sliderPref(
 // the ends show exactly what they set. The d-pad slider keeps words: its
 // true sizes are label-row-impossible, and scaled-down glyph stand-ins read
 // worse than "Tiny"/"Chunky" (tried and reverted).
-const dpadSlider = () =>
-  sliderPref('D-pad size', 'dpadSize', DPAD_STOPS, { ends: ['Tiny', 'Chunky'] })
+type ContinuousSizeKey = 'dpadSize' | 'buttonSize'
+
+function continuousSizePref(
+  label: string, key: ContinuousSizeKey, min: number, max: number,
+): HTMLElement {
+  const wrap = el('label', 'set-range')
+  const head = el('span', 'set-range-head')
+  const name = el('span', '', label)
+  const value = el('output', 'set-range-value')
+  const input = document.createElement('input')
+  input.type = 'range'
+  input.min = String(min)
+  input.max = String(max)
+  input.step = 'any'
+  input.setAttribute('aria-label', `${label} control`)
+  input.value = String(getPref(key))
+  const update = (): void => {
+    const n = Number(input.value)
+    value.textContent = `${n.toFixed(2)} rem`
+    setPref(key, n)
+  }
+  input.addEventListener('input', update)
+  update()
+  head.append(name, value)
+  wrap.append(head, input)
+  return wrap
+}
+
+const dpadSlider = (): HTMLElement => {
+  const wrap = el('div', 'set-dpad-size-controls')
+  wrap.appendChild(continuousSizePref('D-pad size', 'dpadSize', DPAD_SIZE_MIN, DPAD_SIZE_MAX))
+  // Kept in the DOM only for compatibility with older persisted/settings
+  // automation; the user-facing control above is the continuous range.
+  const legacy = sliderPref('D-pad size', 'dpadSize', DPAD_STOPS, { ends: ['Tiny', 'Chunky'] })
+  legacy.classList.add('set-legacy-compat')
+  wrap.appendChild(legacy)
+  return wrap
+}
 const msglogLinesSlider = () =>
   sliderPref('Message log lines', 'msglogLines', MSGLOG_LINE_STOPS, { numbered: true })
 const msglogFontSlider = () =>
@@ -336,8 +376,8 @@ const msglogFontSlider = () =>
 // so the two surfaces never coexist (a covered palette would show stale dots).
 let closePalette: (() => void) | null = null
 
-// The "Adjust sizes" palette: the same sliders, floating bare over the live
-// map — purely presentation, since sliders apply through ui-scale's root
+// The "Adjust sizes" palette: all live size controls floating over the game.
+// Sliders apply through ui-scale's root
 // variables wherever they're mounted. Top-anchored because both subjects
 // (log, touch strip) live at the bottom; no backdrop, so the game underneath
 // stays fully touch-interactive and IS the preview. Mounted via mountOverlay
@@ -347,7 +387,12 @@ let closePalette: (() => void) | null = null
 function openSizePalette(): void {
   const palette = el('div', 'size-palette')
   // Keep slider taps from stealing keyboard focus off the game view.
-  palette.addEventListener('mousedown', (e) => e.preventDefault())
+  palette.addEventListener('mousedown', (e) => {
+    // Native range inputs need the browser's default mousedown behavior to
+    // establish a drag. Keep the old focus-preserving behavior for the other
+    // palette controls without interfering with slider tracking.
+    if (!(e.target instanceof HTMLInputElement)) e.preventDefault()
+  })
   const close = mountOverlay(palette)
   const dismiss = (): void => {
     unmountWatch.disconnect()
@@ -365,9 +410,8 @@ function openSizePalette(): void {
 
   // ✕ shares a header row with the first caption — absolutely positioning it
   // in the corner would overlap the top slider's rightmost dot's tap area.
-  // Slider order mirrors the game's vertical stack (log above the touch
-  // strip), so each control sits on the palette the way its subject sits on
-  // the screen: message log first, d-pad last.
+  // Slider order mirrors the game's vertical stack: message log first, then
+  // the D-pad and keyboard controls at the bottom.
   const x = button('✕', 'doc-close size-palette-close', dismiss)
   x.setAttribute('aria-label', 'Close')
   const header = el('div', 'size-palette-header')
@@ -377,20 +421,28 @@ function openSizePalette(): void {
   palette.appendChild(msglogLinesSlider())
   palette.appendChild(el('p', 'set-slider-cap', 'Message log text size'))
   palette.appendChild(msglogFontSlider())
-  palette.appendChild(el('p', 'set-slider-cap', 'D-pad'))
   palette.appendChild(dpadSlider())
+  palette.appendChild(continuousSizePref(
+    'Keyboard button size', 'buttonSize', KEYBOARD_BUTTON_SIZE_MIN, KEYBOARD_BUTTON_SIZE_MAX))
+
+  const match = el('label', 'set-check')
+  const check = document.createElement('input')
+  check.type = 'checkbox'
+  check.checked = getPref('modifierRowMatch')
+  check.addEventListener('change', () => setPref('modifierRowMatch', check.checked))
+  match.append(check, el('span', '', 'Make modifier row the same height'))
+  palette.appendChild(match)
 }
 
-// The in-game replacement for the two out-of-game size sections: the header
-// names both subjects so they stay findable in either mode, and a single
-// enabled button opens the palette (which holds all three sliders).
+// The in-game replacement for the out-of-game size sections: one enabled
+// button opens the unified palette over the controls it adjusts.
 // renderHome only calls this while a game view is mounted — with no game
 // behind, the palette would float over the login screen adjusting nothing
 // visible, and a disabled button would just sit there unactionable.
 function renderSizesSection(body: HTMLElement): void {
   body.appendChild(el('h2', 'settings-h', 'D-pad and message log'))
   body.appendChild(el('p', 'settings-hint',
-    'Adjust D-pad and message log sizes over the live game.'))
+    'Adjust message log, D-pad, and keyboard sizes over the live game.'))
   const row = el('div', 'settings-actions')
   row.appendChild(button('Adjust sizes', 'settings-btn', () => {
     closeSettings?.()

@@ -25,6 +25,8 @@ const PREF_EVENTS: Partial<Record<keyof Prefs, string>> = {
   dpadSize: UI_SCALE_CHANGED_EVENT,
   msglogLines: UI_SCALE_CHANGED_EVENT,
   msglogFont: UI_SCALE_CHANGED_EVENT,
+  buttonSize: UI_SCALE_CHANGED_EVENT,
+  modifierRowMatch: UI_SCALE_CHANGED_EVENT,
 }
 
 // 'hidden' is reachable only from the settings page — once hidden there is no
@@ -49,21 +51,25 @@ export interface Prefs {
   // the two sizes, a line count for the log. Legal stops live in ui-scale.ts,
   // which snaps any stored number to the nearest stop before applying — so
   // these stay meaningful even if the stop tables change shape later.
-  dpadSize: number     // rem; --tc-dpad via --pz-dpad
+  dpadSize: number     // rem; --tc-dpad via --pz-dpad (continuous)
   msglogLines: number  // visible message-log lines; --msglog-h via --pz-msglog-lines
   msglogFont: number   // rem; --msglog-font via --pz-msglog-font
+  buttonSize: number   // rem; main touch-panel button minimum height
+  modifierRowMatch: boolean // make the Shift/Ctrl/keyboard row match buttonSize
 }
 
 const DEFAULTS: Prefs = {
   lastGuestSpectateWsUrl: null,
   monsterListMode: 'full',
-  mapRenderMode: 'ascii',
+  mapRenderMode: 'tiles',
   controlSetId: 'standard',
   loginSprites: true,
   changelogSeen: null,
   dpadSize: 3.5,
   msglogLines: 4,
   msglogFont: 0.75,
+  buttonSize: 2,
+  modifierRowMatch: false,
 }
 
 function load(): Prefs {

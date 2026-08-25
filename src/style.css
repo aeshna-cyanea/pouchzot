@@ -3154,6 +3154,15 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
      fallback. 3.3rem was the audited strip minimum
      (dev-material/vertical-space-savings.md). */
   --tc-dpad: var(--pz-dpad, 3.5rem);
+  --tc-button-size: var(--pz-button-size, 2rem);
+  --tc-modifier-size: var(--pz-modifier-size, 1.4rem);
+  --tc-key-scale: calc(var(--tc-button-size) / 2rem);
+  --tc-header-size: calc(1.4rem * var(--tc-key-scale));
+  /* Header + three exact-height main rows + footer + four 2px gaps. */
+  --tc-panel-size: calc(
+    var(--tc-header-size) + var(--tc-button-size) * 3 +
+    var(--tc-modifier-size) + 8px
+  );
   /* Resting palette one step darker than the app-wide tokens: at night the
      map is sparse dim glyphs on near-black, so --text/--surface2 buttons
      outshine the play area. Presses brighten (--tc-press + accent label) —
@@ -3177,11 +3186,14 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   padding: 0.1rem 0.35rem calc(0.1rem + var(--safe-bottom));
   background: var(--bg);
   align-items: stretch;
-  /* Cap the strip to the d-pad's height (3 cells + 2 gaps + own padding) so a
-     tall z spell grid scrolls inside the panel instead of growing the whole
-     strip and eating the map. The flex chain below needs min-height:0 to let
-     the grid shrink and scroll rather than forcing the panel taller. */
-  max-height: calc(var(--tc-dpad) * 3 + 4px + 0.4rem + var(--safe-bottom));
+  /* Size to whichever side needs more room. Main keyboard rows have exact
+     slider-controlled heights, so increasing their size must grow this strip
+     rather than taking space away from another flexible row. */
+  height: calc(
+    max(calc(var(--tc-dpad) * 3 + 4px), var(--tc-panel-size)) +
+    0.4rem + var(--safe-bottom)
+  );
+  max-height: none;
 }
 
 /* Cursor modes (X level map / x examine / targeting) deliberately add NO
@@ -3247,6 +3259,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   grid-template-rows: repeat(3, var(--tc-dpad));
   gap: 2px;
   flex-shrink: 0;
+  align-self: flex-end;
 }
 
 .tc-dpad-btn {
@@ -3293,8 +3306,8 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   border: 1px solid var(--tc-border);
   border-radius: 3px;
   color: var(--tc-label);
-  font-size: 0.8rem;
-  height: 1.4rem;
+  font-size: calc(0.8rem * var(--tc-key-scale));
+  height: var(--tc-header-size);
   min-width: 2.6rem;
   flex-shrink: 0;
   cursor: pointer;
@@ -3323,8 +3336,8 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   border: 1px solid var(--tc-border);
   border-radius: 3px;
   color: var(--tc-label);
-  font-size: 0.72rem;
-  height: 1.4rem;
+  font-size: calc(0.72rem * var(--tc-key-scale));
+  height: var(--tc-header-size);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -3355,7 +3368,8 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 .tc-row {
   display: flex;
   gap: 2px;
-  flex: 1;
+  flex: 0 0 var(--tc-button-size);
+  height: var(--tc-button-size);
 }
 
 .tc-btn {
@@ -3365,8 +3379,9 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   border-radius: 3px;
   color: var(--tc-label);
   font-family: var(--font-mono);
-  font-size: 0.95rem;
-  min-height: 2rem;
+  font-size: calc(0.95rem * var(--tc-key-scale));
+  height: 100%;
+  min-height: 0;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -3428,6 +3443,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   display: flex;
   flex-direction: row;
   gap: 2px;
+  min-height: var(--tc-modifier-size);
 }
 
 .tc-shift,
@@ -3438,8 +3454,8 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   border: 1px solid var(--tc-border);
   border-radius: 3px;
   color: var(--tc-label);
-  font-size: 0.65rem;
-  height: 1.4rem;
+  font-size: calc(0.65rem * var(--tc-key-scale));
+  height: var(--tc-modifier-size);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -3879,7 +3895,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
      them; flush against a screen edge they need real height to hit. */
   .tc-shift,
   .tc-ctrl,
-  .tc-kbd { height: 1.8rem; }
+  .tc-kbd { height: max(1.8rem, var(--tc-modifier-size)); }
 
   /* Menu-specific touch buttons replace the regular touch panel
      while a CRT/menu is active. */
@@ -4250,6 +4266,37 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   line-height: 1;
 }
 
+/* Continuous control-size mode. Unlike the older stop-based preference
+   controls, this is a native range so every small phone can be tuned without
+   jumping between arbitrary preset dots. */
+.set-range {
+  display: block;
+  margin-top: 1rem;
+}
+.set-range-head {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+.set-range-value { color: var(--accent); font-family: var(--font-mono); }
+.set-range input[type="range"] {
+  display: block;
+  width: 100%;
+  margin: 0.55rem 0 0;
+  accent-color: var(--accent);
+}
+.set-legacy-compat { display: none; }
+.set-check {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 1rem;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+.set-check input { accent-color: var(--accent); }
+
 /* D-pad size preview: the whole 3×3 pad at true size, centered above the
    slider — one button alone can't convey the pad's overall footprint. The
    box reserves the LARGEST stop's height (--pz-dpad-max, written by
@@ -4336,6 +4383,8 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   text-shadow: var(--msglog-text-shadow);
 }
 .size-palette .set-slider { margin-top: 0; }
+.size-palette .set-range { margin-top: 0.35rem; }
+.size-palette .set-check { margin-top: 0.55rem; }
 /* Contrast raises, palette-scoped: the settings card's dim captions and
    12%-alpha track read fine on its calm dark page, but over a live glyph
    field they sink into the noise — brighten text, track, and dot rings
