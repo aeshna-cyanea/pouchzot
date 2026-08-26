@@ -21,7 +21,8 @@ import { defaultPref, getPref, setPref, type Prefs } from '../prefs'
 import {
   DPAD_SIZE_MAX, DPAD_SIZE_MIN,
   KEYBOARD_BUTTON_SIZE_MAX, KEYBOARD_BUTTON_SIZE_MIN,
-  MSGLOG_FONT_STOPS, MSGLOG_LINE_STOPS, nearestStop,
+  MSGLOG_FONT_SIZE_MAX, MSGLOG_FONT_SIZE_MIN,
+  MSGLOG_LINE_STOPS, nearestStop,
 } from '../ui-scale'
 import { openGesturesDoc } from './docs'
 
@@ -264,7 +265,7 @@ function markChecked(group: HTMLElement, chosen: Element): void {
 }
 
 // Numeric prefs whose legal values are a stop table (ui-scale.ts).
-type SliderPrefKey = 'msglogLines' | 'msglogFont'
+type SliderPrefKey = 'msglogLines'
 
 // Discrete slider bound to a stop-table pref: a radiogroup of tap-dots on a
 // track — the page's ordered-magnitude counterpart to segPref's state
@@ -318,9 +319,9 @@ function sliderPref(
   return slider
 }
 
-// Continuous D-pad and keyboard ranges share this implementation so their
+// Continuous size ranges share this implementation so their
 // value display, accessibility label, and live-apply behavior stay aligned.
-type ContinuousSizeKey = 'dpadSize' | 'buttonSize'
+type ContinuousSizeKey = 'dpadSize' | 'buttonSize' | 'msglogFont'
 
 function continuousSizePref(
   label: string, key: ContinuousSizeKey, min: number, max: number,
@@ -352,8 +353,8 @@ const dpadSlider = (): HTMLElement =>
   continuousSizePref('D-pad size', 'dpadSize', DPAD_SIZE_MIN, DPAD_SIZE_MAX)
 const msglogLinesSlider = () =>
   sliderPref('Message log lines', 'msglogLines', MSGLOG_LINE_STOPS, { numbered: true })
-const msglogFontSlider = () =>
-  sliderPref('Message log text size', 'msglogFont', MSGLOG_FONT_STOPS, { specimen: 'Aa' })
+const msglogFontSlider = (): HTMLElement =>
+  continuousSizePref('Message log text size', 'msglogFont', MSGLOG_FONT_SIZE_MIN, MSGLOG_FONT_SIZE_MAX)
 
 // --- floating size palette ----------------------------------------------------
 
@@ -404,7 +405,6 @@ function openSizePalette(): void {
   header.appendChild(x)
   palette.appendChild(header)
   palette.appendChild(msglogLinesSlider())
-  palette.appendChild(el('p', 'set-slider-cap', 'Message log text size'))
   palette.appendChild(msglogFontSlider())
   palette.appendChild(dpadSlider())
   palette.appendChild(continuousSizePref(
@@ -475,7 +475,6 @@ function renderMsglogSection(body: HTMLElement): void {
   body.appendChild(frame)
   body.appendChild(el('p', 'set-slider-cap', 'Lines'))
   body.appendChild(msglogLinesSlider())
-  body.appendChild(el('p', 'set-slider-cap', 'Text size'))
   body.appendChild(msglogFontSlider())
 }
 

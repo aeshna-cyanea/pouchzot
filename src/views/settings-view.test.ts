@@ -17,6 +17,7 @@ import {
 import {
   DPAD_SIZE_MAX, DPAD_SIZE_MIN,
   KEYBOARD_BUTTON_SIZE_MAX, KEYBOARD_BUTTON_SIZE_MIN,
+  MSGLOG_FONT_SIZE_MAX, MSGLOG_FONT_SIZE_MIN,
 } from '../ui-scale'
 
 beforeEach(() => {
@@ -457,15 +458,21 @@ describe('size sliders', () => {
   const dot = (group: HTMLElement, value: number) =>
     group.querySelector<HTMLButtonElement>(`[aria-label="${value}"]`)!
 
-  it('renders a continuous D-pad range and both discrete message sliders', () => {
+  it('renders continuous D-pad and message font ranges and a discrete lines slider', () => {
     openSettings()
     const dpad = range('D-pad size')
     expect(dpad.min).toBe(String(DPAD_SIZE_MIN))
     expect(dpad.max).toBe(String(DPAD_SIZE_MAX))
     expect(dpad.step).toBe('any')
     expect(dpad.value).toBe('3.5')
+
+    const msgFont = range('Message log text size')
+    expect(msgFont.min).toBe(String(MSGLOG_FONT_SIZE_MIN))
+    expect(msgFont.max).toBe(String(MSGLOG_FONT_SIZE_MAX))
+    expect(msgFont.step).toBe('any')
+    expect(msgFont.value).toBe('0.75')
+
     expect(segGroup('Message log lines').querySelectorAll('[role="radio"]')).toHaveLength(5)
-    expect(segGroup('Message log text size').querySelectorAll('[role="radio"]')).toHaveLength(5)
   })
 
   it('labels the lines slider dots with their values', () => {
@@ -474,18 +481,12 @@ describe('size sliders', () => {
     expect(nums.map(n => n.textContent)).toEqual(['2', '3', '4', '5', '6'])
   })
 
-  it('shows the current continuous D-pad value', () => {
+  it('shows the current continuous D-pad and font size values', () => {
     openSettings()
     expect(range('D-pad size').closest('.set-range')!.querySelector('output')!.textContent)
       .toBe('3.50 rem')
-  })
-
-  it('renders the font slider ends as "Aa" specimens at the true stop sizes', () => {
-    openSettings()
-    const ends = [...segGroup('Message log text size').querySelectorAll('.set-slider-num')]
-    expect(ends.map(n => n.textContent)).toEqual(['Aa', 'Aa'])
-    expect(ends.map(n => (n as HTMLElement).style.fontSize)).toEqual(['0.65rem', '0.85rem'])
-    for (const n of ends) expect(n.classList.contains('set-slider-spec')).toBe(true)
+    expect(range('Message log text size').closest('.set-range')!.querySelector('output')!.textContent)
+      .toBe('0.75 rem')
   })
 
   it('dragging the D-pad range stores an exact intermediate value', () => {
@@ -497,6 +498,15 @@ describe('size sliders', () => {
     expect(dpad.closest('.set-range')!.querySelector('output')!.textContent).toBe('3.73 rem')
   })
 
+  it('dragging the message font range stores an exact intermediate value', () => {
+    openSettings()
+    const msgFont = range('Message log text size')
+    msgFont.value = '0.72'
+    msgFont.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(getPref('msglogFont')).toBe(0.72)
+    expect(msgFont.closest('.set-range')!.querySelector('output')!.textContent).toBe('0.72 rem')
+  })
+
   it('fires the ui-scale live-apply event on change', () => {
     openSettings()
     const seen = vi.fn()
@@ -505,12 +515,6 @@ describe('size sliders', () => {
     expect(seen).toHaveBeenCalledTimes(1)
     expect(getPref('msglogLines')).toBe(6)
     window.removeEventListener(UI_SCALE_CHANGED_EVENT, seen)
-  })
-
-  it('snaps a hand-edited stored value to the nearest stop for display', () => {
-    localStorage.setItem('pocketzot:prefs', JSON.stringify({ msglogFont: 0.72 }))
-    openSettings()
-    expect(dot(segGroup('Message log text size'), 0.7).classList.contains('active')).toBe(true)
   })
 
   it('re-inputting the current continuous value is a no-op', () => {
@@ -570,9 +574,13 @@ describe('floating size palette', () => {
     adjustButtons()[0].click()
     expect(document.querySelector('.settings-card')).toBeNull()
     const palette = document.querySelector<HTMLElement>('.size-palette')!
-    expect(palette.querySelectorAll('[role="radiogroup"]')).toHaveLength(2)
+    expect(palette.querySelectorAll('[role="radiogroup"]')).toHaveLength(1)
+    const msgFont = range('Message log text size', palette)
     const dpad = range('D-pad size', palette)
     const keyboard = range('Keyboard button size', palette)
+    expect([msgFont.min, msgFont.max, msgFont.step]).toEqual([
+      String(MSGLOG_FONT_SIZE_MIN), String(MSGLOG_FONT_SIZE_MAX), 'any',
+    ])
     expect([dpad.min, dpad.max, dpad.step]).toEqual([
       String(DPAD_SIZE_MIN), String(DPAD_SIZE_MAX), 'any',
     ])
@@ -582,6 +590,9 @@ describe('floating size palette', () => {
     dpad.value = '3.7'
     dpad.dispatchEvent(new Event('input', { bubbles: true }))
     expect(getPref('dpadSize')).toBe(3.7)
+    msgFont.value = '0.81'
+    msgFont.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(getPref('msglogFont')).toBe(0.81)
   })
 
   it('closes on ✕ and on Escape', () => {

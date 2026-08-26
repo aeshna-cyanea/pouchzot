@@ -7,8 +7,8 @@ vi.stubGlobal('localStorage', fakeStorage())
 
 import { setPref } from './prefs'
 import {
-  DPAD_SIZE_MAX, initUiScale, KEYBOARD_BUTTON_SIZE_MIN,
-  MSGLOG_FONT_STOPS, MSGLOG_LINE_STOPS, nearestStop,
+  clampMsglogFontSize, DPAD_SIZE_MAX, initUiScale, KEYBOARD_BUTTON_SIZE_MIN,
+  MSGLOG_FONT_SIZE_MAX, MSGLOG_FONT_SIZE_MIN, MSGLOG_LINE_STOPS, nearestStop,
 } from './ui-scale'
 
 const rootVar = (name: string) => document.documentElement.style.getPropertyValue(name)
@@ -24,15 +24,26 @@ describe('nearestStop', () => {
 
   it('snaps out-of-table values to the nearest stop', () => {
     expect(nearestStop(MSGLOG_LINE_STOPS, 0)).toBe(2)
-    expect(nearestStop(MSGLOG_FONT_STOPS, 0.72)).toBe(0.7)
   })
 
   it('defaults sit dead-center of every stop table', () => {
-    for (const stops of [MSGLOG_LINE_STOPS, MSGLOG_FONT_STOPS]) {
+    for (const stops of [MSGLOG_LINE_STOPS]) {
       expect(stops.length % 2).toBe(1)
     }
     expect(MSGLOG_LINE_STOPS[(MSGLOG_LINE_STOPS.length - 1) / 2]).toBe(4)
-    expect(MSGLOG_FONT_STOPS[(MSGLOG_FONT_STOPS.length - 1) / 2]).toBe(0.75)
+  })
+})
+
+describe('clampMsglogFontSize', () => {
+  it('preserves values within range', () => {
+    expect(clampMsglogFontSize(0.72)).toBe(0.72)
+    expect(clampMsglogFontSize(0.65)).toBe(0.65)
+    expect(clampMsglogFontSize(0.85)).toBe(0.85)
+  })
+
+  it('clamps values outside range', () => {
+    expect(clampMsglogFontSize(0.5)).toBe(MSGLOG_FONT_SIZE_MIN)
+    expect(clampMsglogFontSize(1.2)).toBe(MSGLOG_FONT_SIZE_MAX)
   })
 })
 
@@ -52,23 +63,24 @@ describe('initUiScale', () => {
     initUiScale()
     setPref('dpadSize', 3.73)
     setPref('msglogLines', 6)
-    setPref('msglogFont', 0.65)
+    setPref('msglogFont', 0.72)
     setPref('buttonSize', 2.37)
     setPref('modifierRowMatch', true)
     expect(rootVar('--pz-dpad')).toBe('3.73rem')
     expect(rootVar('--pz-msglog-lines')).toBe('6')
-    expect(rootVar('--pz-msglog-font')).toBe('0.65rem')
+    expect(rootVar('--pz-msglog-font')).toBe('0.72rem')
     expect(rootVar('--pz-button-size')).toBe('2.37rem')
     expect(rootVar('--pz-modifier-size')).toBe('2.37rem')
   })
 
   it('clamps continuous sizes and snaps discrete hand-edited values', () => {
     localStorage.setItem('pocketzot:prefs', JSON.stringify({
-      dpadSize: 7, buttonSize: 0, msglogLines: 4.4,
+      dpadSize: 7, buttonSize: 0, msglogFont: 1.5, msglogLines: 4.4,
     }))
     initUiScale()
     expect(rootVar('--pz-dpad')).toBe(`${DPAD_SIZE_MAX}rem`)
     expect(rootVar('--pz-button-size')).toBe(`${KEYBOARD_BUTTON_SIZE_MIN}rem`)
+    expect(rootVar('--pz-msglog-font')).toBe(`${MSGLOG_FONT_SIZE_MAX}rem`)
     expect(rootVar('--pz-msglog-lines')).toBe('4')
   })
 })
