@@ -13,7 +13,7 @@ import {
   CONTROLS_CHANGED_EVENT, GRID_ROWS, getActiveControlSet, slotLabel, slotTitle,
 } from './control-sets'
 import type { ControlSet, ControlTabDef, SlotDef } from './control-sets'
-import { getPref, UI_SCALE_CHANGED_EVENT } from '../../prefs'
+
 
 type SendFn = (msg: ClientMsg) => void
 // The three control tabs keep stable positional ids (micro/macro/info =
@@ -93,7 +93,7 @@ export interface TouchControls {
   // stays). For shift-modified taps on surfaces outside this panel, e.g. the
   // spell rail's force-cast (`Z` instead of `z`).
   consumeShift(): boolean
-  destroy(): void          // release the live-apply listener (game exit)
+  destroy(): void          // release document-level listeners (game exit)
 }
 
 // Arrow + numpad keycodes; shift = run-variant; ctrl = open-door / attack-stationary.
@@ -825,11 +825,7 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
 
   const root = document.createElement('div')
   root.id = 'touch-controls'
-  const applyButtonSizing = (): void => {
-    root.classList.toggle('modifier-row-match', getPref('modifierRowMatch'))
-  }
-  applyButtonSizing()
-  window.addEventListener(UI_SCALE_CHANGED_EVENT, applyButtonSizing)
+
 
   // Keyboard overlay (fixed position, renders above everything)
   const { element: kbdEl, open: openKbd, close: closeKbd } = buildKeyboardOverlay(send, bindTap)
@@ -1070,10 +1066,5 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
   // isKbdOpen also demands rendered geometry: overlay layouts can hide the
   // whole controls root while a manually-opened kbd stays display:flex —
   // an invisible kbd must not swallow the back gesture's dismissal.
-  const originalDestroy = destroy
-  const destroyWithSizing = (): void => {
-    window.removeEventListener(UI_SCALE_CHANGED_EVENT, applyButtonSizing)
-    originalDestroy()
-  }
-  return { element: root, enterXMode, exitXMode, setCursorMode, openKbd, closeKbd, isKbdOpen: () => kbdEl.style.display !== 'none' && kbdEl.getClientRects().length > 0, refreshSpellTab, consumeShift, destroy: destroyWithSizing }
+  return { element: root, enterXMode, exitXMode, setCursorMode, openKbd, closeKbd, isKbdOpen: () => kbdEl.style.display !== 'none' && kbdEl.getClientRects().length > 0, refreshSpellTab, consumeShift, destroy }
 }
