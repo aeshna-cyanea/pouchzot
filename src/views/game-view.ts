@@ -6,6 +6,7 @@ import { MapView } from '../game/map/map-view'
 import { TileMapView } from '../game/map/tile-map-view'
 import { bindPinchZoom, bindZoomDrag } from '../game/map/zoom-gesture'
 import { bindMapPress } from '../game/map/map-press'
+import { bindMapPan } from '../game/map/map-pan'
 import { StatsView } from '../game/hud/stats-view'
 import { StatusView } from '../game/hud/status-view'
 import { MonsterListView } from '../game/hud/monster-list'
@@ -171,15 +172,20 @@ export function buildGameView(
   if (import.meta.env.DEV && loader) (window as unknown as { __dcssLoader: TileLoader }).__dcssLoader = loader
   let mapView: MapView | TileMapView = new MapView(store)
   // Map rendering is synchronous per message, mirroring the reference client
-  // (display.js handle_map_message): the view center moves ONLY on map.vgrdc
-  // — never on player.pos — and the pan-blit + dirty repaint happen right in
-  // the map handler, before the next message dispatches. That ordering is
+  // (display.js handle_map_message): the server camera base moves ONLY on
+  // map.vgrdc — never on player.pos — and its pan-blit + dirty repaint happen
+  // right in the map handler, before the next message dispatches. That ordering is
   // what makes later same-batch paints (cursor, player HP stamp) safe by
   // construction: nothing ever paints against a canvas whose origin is about
   // to move. The earlier microtask-coalescing flush existed only to absorb
-  // the double paint caused by panning on player.pos; with vgrdc-only
+  // the double paint caused by panning on player.pos; with vgrdc-only server
   // panning there is nothing to coalesce (multi-map batches are ~1% of
   // traffic, and per-paint cost is sub-millisecond on the blit path).
+  // A normal-play drag adds a client-only whole-cell offset to this server
+  // center. Keeping the two values separate means repeated vgrdc frames keep
+  // following the player without erasing the user's chosen offset.
+  let serverViewCenter = { x: 0, y: 0 }
+  let clientPanOffset = { x: 0, y: 0 }
   // Running HP/MP snapshot (merged across player deltas) for the tile view's
   // under-tile mini-bars. Kept here so a render-mode swap can seed the freshly
   // created view, which otherwise starts at zero until the next player message.
@@ -695,6 +701,22 @@ export function buildGameView(
   mapWrap.id = 'map-wrap'
   mapWrap.appendChild(mapView.element)
 
+  const effectiveViewCenter = (): { x: number; y: number } => ({
+    x: serverViewCenter.x + clientPanOffset.x,
+    y: serverViewCenter.y + clientPanOffset.y,
+  })
+
+  const setClientPanOffset = (next: { x: number; y: number }): void => {
+    if (next.x === clientPanOffset.x && next.y === clientPanOffset.y) return
+    clientPanOffset = next
+    if (mapView.setViewCenter(effectiveViewCenter())) mapView.panRender()
+    scheduleMinimapRepaint()
+  }
+
+  const resetClientPan = (): void => {
+    setClientPanOffset({ x: 0, y: 0 })
+  }
+
   // Continuous zoom supports both a conventional pinch and Google Maps-style
   // one-finger input: double-tap, hold the second tap, then drag vertically
   // (down = in, up = out). Both bind to mapWrap so they survive an in-place
@@ -704,19 +726,52 @@ export function buildGameView(
     mapView.setZoomScale(scale)
     scheduleFit()
   }
+  let mapPan: ReturnType<typeof bindMapPan> | undefined
+  let zoomDrag: ReturnType<typeof bindZoomDrag> | undefined
   const mapPress = bindMapPress(mapWrap, {
     enabled: () => !spectating,
     acceptsTarget: target => target instanceof Element && !!target.closest('#map-grid'),
     resolvePoint: (clientX, clientY) => mapView.cellAtClientPoint(clientX, clientY),
     onTap: ({ x, y }) => conn.send({ msg: 'click_cell', x, y, button: 1 }),
-    onLongPress: ({ x, y }) => conn.send({ msg: 'click_cell', x, y, button: 3 }),
+    onLongPress: ({ x, y }) => {
+      mapPan?.cancel()
+      zoomDrag?.cancel()
+      conn.send({ msg: 'click_cell', x, y, button: 3 })
+    },
   })
-  const zoomDrag = bindZoomDrag(mapWrap, {
+  let panStartOffset = { x: 0, y: 0 }
+  mapPan = bindMapPan(mapWrap, {
+    // Client panning is deliberately an ordinary-play interaction. Targeting
+    // and examine cameras remain wholly server-driven. The spell harvester is
+    // intentionally absent from this gate: its pending silent probe does not
+    // own a visible UI or make this client-only interaction unsafe; the menu
+    // or input-mode frame it produces will disable/cancel the drag normally.
+    enabled: () => currentInputMode === 1 && cursorLoc === null && !inXMode
+      && uiStack.length === 0 && !crtActive && !dialogActive && !activeMenu
+      && activePromptEl === null && !moreActive
+      && !monsterPanelOpen && !minimapOpen,
+    acceptsTarget: target => target instanceof Element && !!target.closest('#map-grid'),
+    onStart: () => {
+      panStartOffset = { ...clientPanOffset }
+      mapPress.cancel()
+      zoomDrag?.cancel()
+    },
+    onPan: (clientDX, clientDY) => {
+      const delta = mapView.cellDeltaAtClientDelta(clientDX, clientDY)
+      if (!delta) return
+      // Dragging the world right/down moves the camera left/up.
+      setClientPanOffset({
+        x: panStartOffset.x - delta.x,
+        y: panStartOffset.y - delta.y,
+      })
+    },
+  })
+  zoomDrag = bindZoomDrag(mapWrap, {
     enabled: () => !inXMode,
     acceptsTarget: target => target instanceof Element && !!target.closest('#map-grid'),
     getScale: () => mapView.getZoomScale(),
     setScale: applyZoomScale,
-    onStart: () => mapPress.cancel(),
+    onStart: () => { mapPress.cancel(); mapPan?.cancel() },
   })
   const pinchZoom = bindPinchZoom(mapWrap, {
     enabled: () => !inXMode,
@@ -725,7 +780,7 @@ export function buildGameView(
     setScale: applyZoomScale,
     // Once a second contact lands, it owns this sequence; a first contact must
     // not remain armed as the first tap of a later one-finger zoom.
-    onStart: () => { mapPress.cancel(); zoomDrag.cancel() },
+    onStart: () => { mapPress.cancel(); mapPan?.cancel(); zoomDrag?.cancel() },
   })
 
   // Tap the compact monster list to open the full-screen GUI variant.
@@ -984,10 +1039,11 @@ export function buildGameView(
     // CSS hook for mode-dependent chrome (e.g. the floating log's scrim
     // lightens over tiles — see --msglog-bg in style.css).
     view.classList.toggle('tiles-mode', mode === 'tiles')
-    const center = { x: store.playerPos.x, y: store.playerPos.y }
+    const center = effectiveViewCenter()
     const zoomScale = mapView.getZoomScale()
     mapPress.cancel()
-    zoomDrag.cancel()
+    mapPan?.cancel()
+    zoomDrag?.cancel()
     pinchZoom.cancel()
     fontScaleObserver.unobserve(mapView.element)
     const oldEl = mapView.element
@@ -1110,7 +1166,8 @@ export function buildGameView(
     window.removeEventListener(MONSTER_LIST_MODE_CHANGED_EVENT, onMonsterListModePref)
     closeWatcher?.destroy()
     closeWatcher = null
-    zoomDrag.destroy()
+    mapPan?.destroy()
+    zoomDrag?.destroy()
     pinchZoom.destroy()
     mapPress.destroy()
     touchControls.destroy()
@@ -1452,13 +1509,19 @@ export function buildGameView(
             countEach(`newchar-each${offline}`)
           }
         }
-        if (msg.clear) store.clear()
+        if (msg.clear) {
+          store.clear()
+          clientPanOffset = { x: 0, y: 0 }
+        }
         // vgrdc is the server's complete view-centering signal (present on a
         // map message whenever it matters — roughly half of them in
-        // practice); setViewCenter returns true only on a real pan. The
-        // player handler never pans — reference parity (its player.js has no
+        // practice). A normal-play client drag is an offset from that base;
+        // the player handler still never pans (reference player.js has no
         // view-center writes at all).
-        const panned = msg.vgrdc ? mapView.setViewCenter(msg.vgrdc) : false
+        if (msg.vgrdc) serverViewCenter = { ...msg.vgrdc }
+        const panned = !!msg.vgrdc || !!msg.clear
+          ? mapView.setViewCenter(effectiveViewCenter())
+          : false
         // Sticky like the reference's inv_mons_msg: only a present key
         // changes it ('' clears); store.clear() above also resets it.
         if (msg.invis_mon_desc !== undefined) store.invisMonDesc = msg.invis_mon_desc
@@ -1862,6 +1925,13 @@ export function buildGameView(
       case 'input_mode': {
         const prevInputMode = currentInputMode
         currentInputMode = msg.mode
+        if (msg.mode !== 1) {
+          mapPress.cancel()
+          mapPan?.cancel()
+          zoomDrag?.cancel()
+          pinchZoom.cancel()
+          resetClientPan()
+        }
         if (msg.mode === 1) {  // COMMAND: normal play resumed
           hideMore()
           disableActivePrompt()
@@ -2031,6 +2101,13 @@ export function buildGameView(
       case 'cursor': {
         const cursorId = (msg as unknown as { id: number }).id
         cursorLoc = msg.loc ?? null
+        if (msg.loc) {
+          mapPress.cancel()
+          mapPan?.cancel()
+          zoomDrag?.cancel()
+          pinchZoom.cancel()
+          resetClientPan()
+        }
         mapView.setCursor(msg.loc)
         // Track the d-pad's steering-a-cursor state for the non-X cursors
         // too (x examine, targeting). X mode (id 2) is excluded: its own

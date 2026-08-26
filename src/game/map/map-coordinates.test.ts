@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mapCellAtClientPoint } from './map-coordinates'
+import { mapCellAtClientPoint, mapCellDeltaFromClientDelta } from './map-coordinates'
 
 describe('mapCellAtClientPoint', () => {
   const rendered = { left: -5, top: 10, width: 210, height: 210 }
@@ -16,5 +16,14 @@ describe('mapCellAtClientPoint', () => {
     expect(mapCellAtClientPoint(205, 20, rendered, map)).toBeNull()
     expect(mapCellAtClientPoint(0, 220, rendered, map)).toBeNull()
     expect(mapCellAtClientPoint(0, 20, { ...rendered, width: 0 }, map)).toBeNull()
+  })
+
+  it('converts client drag distance into symmetric whole-cell deltas', () => {
+    expect(mapCellDeltaFromClientDelta(14, -15, rendered, map)).toEqual({ x: 1, y: -2 })
+    expect(mapCellDeltaFromClientDelta(4.9, -4.9, { width: 210, height: 210 }, map))
+      .toEqual({ x: 0, y: 0 })
+    expect(mapCellDeltaFromClientDelta(5, -5, { width: 210, height: 210 }, map))
+      .toEqual({ x: 1, y: -1 })
+    expect(mapCellDeltaFromClientDelta(10, 10, { width: 0, height: 10 }, map)).toBeNull()
   })
 })

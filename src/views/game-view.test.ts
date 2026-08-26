@@ -408,6 +408,59 @@ describe('map message → store merge', () => {
       vi.useRealTimers()
     }
   })
+
+  it('pans the ordinary-play map in whole cells without sending a click', () => {
+    vi.useFakeTimers()
+    try {
+      const h = setup()
+      h.dispatch({ msg: 'input_mode', mode: 1 })
+      h.dispatch({ msg: 'map', vgrdc: { x: 50, y: 80 }, cells: [] })
+      const cell = stubAsciiMapBounds(h)
+
+      // Two rendered cells right drags the world right, so the client camera
+      // moves two dungeon cells left.
+      mapPointer(cell, 'pointerdown', 100, 100)
+      mapPointer(cell, 'pointermove', 120, 100)
+      mapPointer(cell, 'pointerup', 120, 100)
+      vi.runAllTimers()
+      expect(sent(h).filter(m => m.msg === 'click_cell')).toEqual([])
+
+      mapPointer(cell, 'pointerdown', 65, 95)
+      mapPointer(cell, 'pointerup', 65, 95)
+      vi.advanceTimersByTime(300)
+      expect(sent(h)).toContainEqual({ msg: 'click_cell', x: 37, y: 77, button: 1 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('returns to the server camera and disables panning when targeting starts', () => {
+    vi.useFakeTimers()
+    try {
+      const h = setup()
+      h.dispatch({ msg: 'input_mode', mode: 1 })
+      h.dispatch({ msg: 'map', vgrdc: { x: 50, y: 80 }, cells: [] })
+      const cell = stubAsciiMapBounds(h)
+      mapPointer(cell, 'pointerdown', 100, 100)
+      mapPointer(cell, 'pointermove', 120, 100)
+      mapPointer(cell, 'pointerup', 120, 100)
+
+      h.dispatch({ msg: 'input_mode', mode: 2 })
+      h.dispatch({ msg: 'cursor', id: 1, loc: { x: 51, y: 80 } })
+      mapPointer(cell, 'pointerdown', 100, 100)
+      mapPointer(cell, 'pointermove', 130, 100)
+      mapPointer(cell, 'pointerup', 130, 100)
+
+      mapPointer(cell, 'pointerdown', 65, 95)
+      mapPointer(cell, 'pointerup', 65, 95)
+      vi.advanceTimersByTime(300)
+      expect(sent(h).filter(m => m.msg === 'click_cell')).toEqual([
+        { msg: 'click_cell', x: 39, y: 77, button: 1 },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('X-mode describe strip', () => {

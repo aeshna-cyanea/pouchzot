@@ -13,7 +13,7 @@ import { fgFlags, bgFlags } from './flag-decode'
 import { getStatusIconSizer, type StatusIconSizer } from './icon-sizes'
 import { buildStatusOverlays, fgHaloDngnName, fgThreatDngnName, resolveOverlayId } from '../hud/monster-style'
 import { clampMapZoom } from './zoom-gesture'
-import { mapCellAtClientPoint } from './map-coordinates'
+import { mapCellAtClientPoint, mapCellDeltaFromClientDelta } from './map-coordinates'
 
 // Tile-mode minimum viewport. Square because tile cells are square; 21×21
 // is roughly the smallest cell count where a phone-sized container still
@@ -366,10 +366,10 @@ export class TileMapView {
   // panRender blit) — panRender's blit is valid only relative to this.
   // Stamped after painting, so canvas reconfiguration (setViewportSize wipes
   // the backing store, then fullRender repaints and re-stamps) can never
-  // leave a stale origin trusted. The origin only ever moves inside the map
-  // handler, which pans and repaints synchronously before any other paint
-  // can run (reference-parity — see the render note in game-view.ts), so no
-  // paint ever observes a canvas whose origin differs from this.
+  // leave a stale origin trusted. An origin change is always followed by a
+  // synchronous panRender: either inside the map handler for server vgrdc or
+  // inside the client drag callback. No other paint can therefore observe a
+  // canvas whose origin differs from this.
   private lastPaintOff: { x: number; y: number } | null = null
   private inView(col: number, row: number): boolean {
     return col >= 0 && col < this.viewportW && row >= 0 && row < this.viewportH
@@ -385,6 +385,15 @@ export class TileMapView {
     return mapCellAtClientPoint(
       clientX,
       clientY,
+      this.canvas.getBoundingClientRect(),
+      this.viewRect(),
+    )
+  }
+
+  cellDeltaAtClientDelta(clientDX: number, clientDY: number): { x: number; y: number } | null {
+    return mapCellDeltaFromClientDelta(
+      clientDX,
+      clientDY,
       this.canvas.getBoundingClientRect(),
       this.viewRect(),
     )

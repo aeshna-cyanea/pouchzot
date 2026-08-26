@@ -2,7 +2,7 @@ import type { MapStore } from './map-store'
 import { parseCellKey } from './map-store'
 import { decodeColor, DEFAULT_BG, flashColor } from './colors'
 import { clampMapZoom } from './zoom-gesture'
-import { mapCellAtClientPoint } from './map-coordinates'
+import { mapCellAtClientPoint, mapCellDeltaFromClientDelta } from './map-coordinates'
 
 const NORMAL_W = 33
 const NORMAL_H = 21
@@ -245,18 +245,30 @@ export class MapView {
     return { x: this.offX, y: this.offY, w: this.viewportW, h: this.viewportH }
   }
 
-  cellAtClientPoint(clientX: number, clientY: number): { x: number; y: number } | null {
+  private renderedCellRect(): { left: number; top: number; width: number; height: number } | null {
     const first = this.spans[0]?.[0]
     const last = this.spans[this.viewportH - 1]?.[this.viewportW - 1]
     if (!first || !last) return null
     const a = first.getBoundingClientRect()
     const b = last.getBoundingClientRect()
-    return mapCellAtClientPoint(clientX, clientY, {
+    return {
       left: a.left,
       top: a.top,
       width: b.right - a.left,
       height: b.bottom - a.top,
-    }, this.viewRect())
+    }
+  }
+
+  cellAtClientPoint(clientX: number, clientY: number): { x: number; y: number } | null {
+    const rendered = this.renderedCellRect()
+    return rendered ? mapCellAtClientPoint(clientX, clientY, rendered, this.viewRect()) : null
+  }
+
+  cellDeltaAtClientDelta(clientDX: number, clientDY: number): { x: number; y: number } | null {
+    const rendered = this.renderedCellRect()
+    return rendered
+      ? mapCellDeltaFromClientDelta(clientDX, clientDY, rendered, this.viewRect())
+      : null
   }
 
   // Re-render the viewport centered on viewCenter.
