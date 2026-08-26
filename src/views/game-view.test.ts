@@ -458,7 +458,7 @@ describe('map message → store merge', () => {
     expect(grid.style.transform).toBe('translate3d(5px, 0px, 0)')
   })
 
-  it('returns to the server camera and disables panning when targeting starts', () => {
+  it('preserves the camera offset but disables further panning while targeting', () => {
     vi.useFakeTimers()
     try {
       const h = setup()
@@ -479,11 +479,47 @@ describe('map message → store merge', () => {
       mapPointer(cell, 'pointerup', 65, 95)
       vi.advanceTimersByTime(300)
       expect(sent(h).filter(m => m.msg === 'click_cell')).toEqual([
-        { msg: 'click_cell', x: 39, y: 77, button: 1 },
+        { msg: 'click_cell', x: 37, y: 77, button: 1 },
       ])
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('physical Escape recenters a preserved targeting camera offset', () => {
+    const h = setup()
+    h.dispatch({ msg: 'input_mode', mode: 1 })
+    h.dispatch({ msg: 'map', vgrdc: { x: 50, y: 80 }, cells: [] })
+    const cell = stubAsciiMapBounds(h)
+    const grid = h.view.querySelector<HTMLElement>('#map-grid')!
+    mapPointer(cell, 'pointerdown', 100, 100)
+    mapPointer(cell, 'pointermove', 115, 100)
+    mapPointer(cell, 'pointerup', 115, 100)
+
+    h.dispatch({ msg: 'input_mode', mode: 2 })
+    h.dispatch({ msg: 'cursor', id: 1, loc: { x: 51, y: 80 } })
+    expect(grid.style.transform).toBe('translate3d(5px, 0px, 0)')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true,
+    } as KeyboardEventInit))
+    expect(grid.style.transform).toBe('')
+  })
+
+  it('Android back consumes a pending camera offset as a recenter action', () => {
+    const h = setup()
+    h.dispatch({ msg: 'input_mode', mode: 1 })
+    h.dispatch({ msg: 'map', vgrdc: { x: 50, y: 80 }, cells: [] })
+    const cell = stubAsciiMapBounds(h)
+    const grid = h.view.querySelector<HTMLElement>('#map-grid')!
+    mapPointer(cell, 'pointerdown', 100, 100)
+    mapPointer(cell, 'pointermove', 115, 100)
+    mapPointer(cell, 'pointerup', 115, 100)
+
+    const before = sent(h).length
+    ;(window as unknown as { __dcssBack: () => void }).__dcssBack()
+    expect(grid.style.transform).toBe('')
+    expect(sent(h)).toHaveLength(before)
   })
 
   it('pans from two-finger midpoint travel without changing finger span', () => {

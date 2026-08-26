@@ -713,8 +713,10 @@ export function buildGameView(
     scheduleMinimapRepaint()
   }
 
-  const resetClientPan = (): void => {
+  const resetClientPan = (): boolean => {
+    const changed = clientPanOffset.x !== 0 || clientPanOffset.y !== 0
     setClientPanOffset({ x: 0, y: 0 })
+    return changed
   }
 
   const normalMapPanEnabled = (): boolean => currentInputMode === 1
@@ -759,10 +761,10 @@ export function buildGameView(
   let panStartOffset = { x: 0, y: 0 }
   mapPan = bindMapPan(mapWrap, {
     // Client panning is deliberately an ordinary-play interaction. Targeting
-    // and examine cameras remain wholly server-driven. The spell harvester is
-    // intentionally absent from this gate: its pending silent probe does not
-    // own a visible UI or make this client-only interaction unsafe; the menu
-    // or input-mode frame it produces will disable/cancel the drag normally.
+    // and examine modes cannot add to the retained client offset. The spell
+    // harvester is intentionally absent from this gate: its pending silent
+    // probe does not own a visible UI or make this client-only interaction
+    // unsafe; the menu or input-mode frame it produces cancels the drag.
     enabled: normalMapPanEnabled,
     acceptsTarget: target => target instanceof Element && !!target.closest('#map-grid'),
     onStart: () => {
@@ -890,11 +892,22 @@ export function buildGameView(
     }
   }
 
+  const isEscapeInput = (msg: ClientMsg): boolean => msg.msg === 'key' && msg.keycode === 27
+
+  function sendUserInput(msg: ClientMsg): void {
+    if (isEscapeInput(msg)) resetClientPan()
+    conn.send(msg)
+    afterUserSend(msg)
+  }
+
   // Shared input dispatch for the touch-control buttons AND the Android
   // back gesture (CloseWatcher below): the client-panel/lens/menu-nav
   // guards here are what give an injected Esc the same meaning as a
   // tapped one.
   function dispatchTouchInput(msg: ClientMsg): void {
+    // Recenter even when Esc is consumed by a client-local panel or by the
+    // silent-harvest guard below.
+    if (isEscapeInput(msg)) resetClientPan()
     if (isHarvesting()) return  // suppress d-pad/macro input during silent harvest
     // The monster panel is a client-only overlay and the touch controls stay
     // visible over it (both orientations, like any plain menu). Route their
@@ -919,8 +932,7 @@ export function buildGameView(
       if (msg.keycode === CK_HOME) { jumpMenu(false); return }
     }
     if (msg.msg === 'key' && handleScrollerKeycode(msg.keycode)) return
-    conn.send(msg)
-    afterUserSend(msg)
+    sendUserInput(msg)
   }
 
   const touchControls: TouchControls = buildTouchControls(dispatchTouchInput, spectating ? {} : {
@@ -1187,6 +1199,9 @@ export function buildGameView(
       chatView.closeSheet()  // same routing as physical Esc (docKeyHandler)
       return
     }
+    // Back is the map's local recenter action before it becomes a game-level
+    // cancel/leave/save request. A second back keeps the previous routing.
+    if (resetClientPan()) return
     if (spectating) {
       // The server discards a watcher's game input, so an injected Esc
       // would make back a no-op; leave client-side like physical Esc does.
@@ -1386,6 +1401,7 @@ export function buildGameView(
     // owns the keyboard: don't forward anything to the game underneath. Its own
     // Escape listener (overlay.ts) handles dismissal, so no preventDefault here.
     if (isOverlayOpen()) return
+    if (e.key === 'Escape') resetClientPan()
     if (isHarvesting()) { e.preventDefault(); return }  // suppress during silent harvest
     // Chat sheet: Escape closes it, in both roles — checked before the
     // spectator branch so it doesn't double as exit-to-lobby. (Keys typed
@@ -1418,7 +1434,7 @@ export function buildGameView(
     }
     if (handleMenuNavKey(e)) return
     if (handleScrollerKey(e)) return
-    handleKeydown(e, (msg) => { conn.send(msg); afterUserSend(msg) })
+    handleKeydown(e, sendUserInput)
   }
   document.addEventListener('keydown', docKeyHandler)
 
@@ -1976,7 +1992,6 @@ export function buildGameView(
           zoomDrag?.cancel()
           clearPinchAnchor()
           pinchZoom.cancel()
-          resetClientPan()
         }
         if (msg.mode === 1) {  // COMMAND: normal play resumed
           hideMore()
@@ -2153,7 +2168,6 @@ export function buildGameView(
           zoomDrag?.cancel()
           clearPinchAnchor()
           pinchZoom.cancel()
-          resetClientPan()
         }
         mapView.setCursor(msg.loc)
         // Track the d-pad's steering-a-cursor state for the non-X cursors
@@ -2638,7 +2652,7 @@ export function buildGameView(
         closeTitlePrompt()
       } else if (e.key === 'Escape') {
         e.preventDefault()
-        conn.send({ msg: 'key', keycode: 27 })
+        sendUserInput({ msg: 'key', keycode: 27 })
         closeTitlePrompt()
       }
     })
@@ -2847,8 +2861,8 @@ export function buildGameView(
       const fire = def.shift
         ? () => menuShift.tap()
         : () => {
-            if (def.key) conn.send({ msg: 'input', text: def.key })
-            else if (def.keycode) conn.send({ msg: 'key', keycode: def.keycode })
+            if (def.key) sendUserInput({ msg: 'input', text: def.key })
+            else if (def.keycode) sendUserInput({ msg: 'key', keycode: def.keycode })
           }
       const btn = makeMenuCtrlBtn(def.label, fire)
       if (def.dynamic) btn.dataset.dynamic = 'accept'
@@ -4191,7 +4205,7 @@ export function buildGameView(
       } else if (e.key === 'Escape') {
         e.preventDefault()
         removeTextInput()
-        conn.send({ msg: 'key', keycode: 27 })
+        sendUserInput({ msg: 'key', keycode: 27 })
         focusView()
       }
     })
