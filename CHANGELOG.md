@@ -10,11 +10,6 @@ formatting and HTML chrome differ. Drift is a bug.
 Notable changes to PouchZot, newest first. Entries before 2026-08-21 are
 inherited from the original PocketZot project.
 
-## 2026-08-21
-
-- Renamed the fork PouchZot and clarified its source, copyright, and
-  relationship to the original PocketZot project.
-
 ## 2026-08-24
 
 - Character cards now show the runes a character has collected, and the Orb
@@ -28,6 +23,11 @@ inherited from the original PocketZot project.
 - Redesigned the character creation screens.
 - Fixed a black screen that could occur after resuming a game directly into
   the skills screen (no skills being trained).
+
+## 2026-08-21
+
+- Renamed the fork PouchZot and clarified its source, copyright, and
+  relationship to the original PocketZot project.
 
 ## 2026-08-19
 
