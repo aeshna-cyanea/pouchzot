@@ -47,6 +47,22 @@ type BindOpts = {
   hold?: { start: () => void; end: () => void; cancel: () => void }
 }
 
+// Touch events are targeted at the element where each contact began, but
+// keeping the identifier here also makes a modifier hold robust to browsers
+// that deliver another contact's end/cancel event through the same listener.
+function changedTouchIds(e: TouchEvent): number[] | null {
+  const changed = e.changedTouches
+  if (!changed || changed.length === 0) return null
+  const ids: number[] = []
+  for (let i = 0; i < changed.length; i++) {
+    const touch = typeof changed.item === 'function'
+      ? changed.item(i)
+      : (changed as unknown as ArrayLike<Touch>)[i]
+    if (touch) ids.push(touch.identifier)
+  }
+  return ids.length ? ids : null
+}
+
 // Hold-to-repeat pacing, roughly matching OS keyboard auto-repeat defaults.
 export const REPEAT_DELAY_MS = 350
 export const REPEAT_INTERVAL_MS = 85
@@ -570,23 +586,46 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
 
   const bindTap: BindTap = (btn, fire, opts) => {
     if (opts?.hold) {
+      const activeTouches = new Set<number>()
       let active = false
       let stopCancelled: () => void
       const release = (cancelled: boolean): void => {
         if (!active) return
         active = false
+        activeTouches.clear()
         holdStops.delete(stopCancelled)
         if (cancelled) opts.hold!.cancel()
         else opts.hold!.end()
       }
-      const stopNormal = (): void => release(false)
-      stopCancelled = (): void => release(true)
+      const stopNormal = (e: Event): void => {
+        const ids = changedTouchIds(e as TouchEvent)
+        if (ids === null) release(false)
+        else {
+          for (const id of ids) activeTouches.delete(id)
+          if (activeTouches.size === 0) release(false)
+        }
+      }
+      stopCancelled = (e?: Event): void => {
+        if (e) {
+          const ids = changedTouchIds(e as TouchEvent)
+          if (ids === null) activeTouches.clear()
+          else for (const id of ids) activeTouches.delete(id)
+        } else {
+          activeTouches.clear()
+        }
+        if (activeTouches.size === 0) release(true)
+      }
       btn.addEventListener('touchstart', (e) => {
         e.preventDefault()
-        if (active) return
-        active = true
-        holdStops.add(stopCancelled)
-        opts.hold!.start()
+        const ids = changedTouchIds(e)
+        const wasIdle = activeTouches.size === 0
+        if (ids === null) activeTouches.add(-1)
+        else for (const id of ids) activeTouches.add(id)
+        if (wasIdle) {
+          active = true
+          holdStops.add(stopCancelled)
+          opts.hold!.start()
+        }
       }, { passive: false })
       btn.addEventListener('touchend', stopNormal)
       btn.addEventListener('touchcancel', stopCancelled)

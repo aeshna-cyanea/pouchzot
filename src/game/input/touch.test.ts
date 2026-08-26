@@ -260,7 +260,13 @@ describe('hold-to-repeat', () => {
 })
 
 describe('virtual keyboard modifier multitouch', () => {
-  const touchEvent = (type: string) => new Event(type, { bubbles: true, cancelable: true })
+  const touchEvent = (type: string, identifier = 1) => {
+    const e = new Event(type, { bubbles: true, cancelable: true })
+    Object.defineProperty(e, 'changedTouches', {
+      value: [{ identifier }],
+    })
+    return e
+  }
 
   const kbdKey = (root: HTMLElement, text: string) =>
     [...root.querySelectorAll<HTMLElement>('#kbd-overlay .kbd-key')]
@@ -273,21 +279,24 @@ describe('virtual keyboard modifier multitouch', () => {
     const q = kbdKey(tc.element, 'q')
     const w = kbdKey(tc.element, 'w')
 
-    shift.dispatchEvent(touchEvent('touchstart'))
+    shift.dispatchEvent(touchEvent('touchstart', 1))
     expect(shift.classList.contains('active')).toBe(true)
-    q.dispatchEvent(touchEvent('touchstart'))
-    q.dispatchEvent(touchEvent('touchend'))
-    w.dispatchEvent(touchEvent('touchstart'))
-    w.dispatchEvent(touchEvent('touchend'))
+    // A release from another contact must not release the held modifier.
+    shift.dispatchEvent(touchEvent('touchend', 2))
+    expect(shift.classList.contains('active')).toBe(true)
+    q.dispatchEvent(touchEvent('touchstart', 2))
+    q.dispatchEvent(touchEvent('touchend', 2))
+    w.dispatchEvent(touchEvent('touchstart', 3))
+    w.dispatchEvent(touchEvent('touchend', 3))
     expect(sent).toEqual([
       { msg: 'input', text: 'Q' },
       { msg: 'input', text: 'W' },
     ])
 
-    shift.dispatchEvent(touchEvent('touchend'))
+    shift.dispatchEvent(touchEvent('touchend', 1))
     expect(shift.classList.contains('active')).toBe(false)
-    q.dispatchEvent(touchEvent('touchstart'))
-    q.dispatchEvent(touchEvent('touchend'))
+    q.dispatchEvent(touchEvent('touchstart', 4))
+    q.dispatchEvent(touchEvent('touchend', 4))
     expect(sent.at(-1)).toEqual({ msg: 'input', text: 'q' })
   })
 
@@ -298,19 +307,19 @@ describe('virtual keyboard modifier multitouch', () => {
     const q = kbdKey(tc.element, 'q')
     const p = kbdKey(tc.element, 'p')
 
-    ctrl.dispatchEvent(touchEvent('touchstart'))
-    q.dispatchEvent(touchEvent('touchstart'))
-    q.dispatchEvent(touchEvent('touchend'))
-    p.dispatchEvent(touchEvent('touchstart'))
-    p.dispatchEvent(touchEvent('touchend'))
+    ctrl.dispatchEvent(touchEvent('touchstart', 1))
+    q.dispatchEvent(touchEvent('touchstart', 2))
+    q.dispatchEvent(touchEvent('touchend', 2))
+    p.dispatchEvent(touchEvent('touchstart', 3))
+    p.dispatchEvent(touchEvent('touchend', 3))
     expect(sent).toEqual([
       { msg: 'key', keycode: 17 },
       { msg: 'key', keycode: 16 },
     ])
 
-    ctrl.dispatchEvent(touchEvent('touchend'))
-    q.dispatchEvent(touchEvent('touchstart'))
-    q.dispatchEvent(touchEvent('touchend'))
+    ctrl.dispatchEvent(touchEvent('touchend', 1))
+    q.dispatchEvent(touchEvent('touchstart', 4))
+    q.dispatchEvent(touchEvent('touchend', 4))
     expect(sent.at(-1)).toEqual({ msg: 'input', text: 'q' })
   })
 
