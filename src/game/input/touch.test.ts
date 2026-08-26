@@ -6,6 +6,7 @@ import { fakeStorage } from '../../test/fake-storage'
 vi.stubGlobal('localStorage', fakeStorage())
 
 import { buildTouchControls, REPEAT_DELAY_MS, REPEAT_INTERVAL_MS } from './touch'
+import { CK_RIGHT, CK_SHIFT_LEFT, CK_SHIFT_RIGHT } from './keyboard'
 import {
   cloneSet, newSetId, saveControlSet, setActiveControlSet, builtinSets,
 } from './control-sets'
@@ -271,6 +272,32 @@ describe('virtual keyboard modifier multitouch', () => {
   const kbdKey = (root: HTMLElement, text: string) =>
     [...root.querySelectorAll<HTMLElement>('#kbd-overlay .kbd-key')]
       .find(b => b.textContent === text)!
+
+  const dpadKey = (root: HTMLElement, text: string) =>
+    [...root.querySelectorAll<HTMLElement>('.tc-dpad-btn')]
+      .find(b => b.textContent === text)!
+
+  it('keeps the main d-pad Shift held across multiple direction taps', () => {
+    const { tc, sent } = setup()
+    const shift = tc.element.querySelector<HTMLElement>('.tc-shift')!
+    const left = dpadKey(tc.element, '←')
+    const right = dpadKey(tc.element, '→')
+
+    shift.dispatchEvent(touchEvent('touchstart', 1))
+    left.dispatchEvent(touchEvent('touchstart', 2))
+    left.dispatchEvent(touchEvent('touchend', 2))
+    right.dispatchEvent(touchEvent('touchstart', 3))
+    right.dispatchEvent(touchEvent('touchend', 3))
+    expect(sent).toEqual([
+      { msg: 'key', keycode: CK_SHIFT_LEFT },
+      { msg: 'key', keycode: CK_SHIFT_RIGHT },
+    ])
+
+    shift.dispatchEvent(touchEvent('touchend', 1))
+    right.dispatchEvent(touchEvent('touchstart', 4))
+    right.dispatchEvent(touchEvent('touchend', 4))
+    expect(sent.at(-1)).toEqual({ msg: 'key', keycode: CK_RIGHT })
+  })
 
   it('keeps Shift active while another finger taps multiple letters', () => {
     const { tc, sent } = setup()

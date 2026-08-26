@@ -499,6 +499,11 @@ export interface TouchControlsOpts {
 
 export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): TouchControls {
   let ctrlActive = false
+  let heldShift = false
+  let heldCtrl = false
+  let heldShiftUsed = false
+  let heldCtrlUsed = false
+  let lastShiftOn = false
   let activeTab: TabKey = 'micro'
   let controlSet!: ControlSet  // assigned by applyControlSet() before first read
 
@@ -509,9 +514,18 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
   let tabsEl!: HTMLDivElement
   let dpadEl!: HTMLDivElement
 
+  const shiftOn = (): boolean => shift.isOn || heldShift
+  const ctrlOn = (): boolean => ctrlActive || heldCtrl
+  function notifyShiftChange(): void {
+    const on = shiftOn()
+    if (on === lastShiftOn) return
+    lastShiftOn = on
+    opts.onShiftChange?.(on)
+  }
+
   const shift = createShiftToggle({ onChange: () => {
     refreshMods()
-    opts.onShiftChange?.(shift.isOn)
+    notifyShiftChange()
   } })
 
   // Single owner of the z-tab reveal rule, used by the tab strip and
@@ -669,9 +683,9 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
   // --- Key dispatch helpers ---
 
   function refreshMods(): void {
-    shiftBtn.classList.toggle('active', shift.state === 'once')
+    shiftBtn.classList.toggle('active', shift.state === 'once' || heldShift)
     shiftBtn.classList.toggle('locked', shift.state === 'lock')
-    ctrlBtn.classList.toggle('active', ctrlActive)
+    ctrlBtn.classList.toggle('active', ctrlOn())
   }
 
   // Called after each key dispatch. Keeps shift lock engaged so the next d-pad
@@ -686,18 +700,102 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
   }
 
   function clearAllMods(): void {
+    heldShift = false
+    heldCtrl = false
+    heldShiftUsed = true
+    heldCtrlUsed = true
     shift.reset()
     if (ctrlActive) {
       ctrlActive = false
       refreshMods()
     }
+    notifyShiftChange()
+  }
+
+  function toggleShiftMod(): void {
+    const wasOff = shift.state === 'off'
+    shift.tap()
+    if (wasOff && ctrlOn()) {
+      ctrlActive = false
+      heldCtrl = false
+      heldCtrlUsed = true
+      refreshMods()
+    }
+  }
+
+  function toggleCtrlMod(): void {
+    ctrlActive = !ctrlActive
+    if (ctrlActive) {
+      heldShift = false
+      heldShiftUsed = true
+      shift.reset()
+    }
+    refreshMods()
+    notifyShiftChange()
+  }
+
+  function beginShiftHold(): void {
+    heldShift = true
+    heldShiftUsed = false
+    if (ctrlOn()) {
+      ctrlActive = false
+      heldCtrl = false
+      heldCtrlUsed = true
+    }
+    refreshMods()
+    notifyShiftChange()
+  }
+
+  function endShiftHold(): void {
+    heldShift = false
+    if (!heldShiftUsed) toggleShiftMod()
+    refreshMods()
+    notifyShiftChange()
+  }
+
+  function cancelShiftHold(): void {
+    heldShift = false
+    heldShiftUsed = true
+    refreshMods()
+    notifyShiftChange()
+  }
+
+  function beginCtrlHold(): void {
+    heldCtrl = true
+    heldCtrlUsed = false
+    if (shiftOn()) {
+      heldShift = false
+      heldShiftUsed = true
+      shift.reset()
+    }
+    refreshMods()
+    notifyShiftChange()
+  }
+
+  function endCtrlHold(): void {
+    heldCtrl = false
+    if (!heldCtrlUsed) toggleCtrlMod()
+    refreshMods()
+    notifyShiftChange()
+  }
+
+  function cancelCtrlHold(): void {
+    heldCtrl = false
+    heldCtrlUsed = true
+    refreshMods()
+  }
+
+  function markHeldModifierUsed(): void {
+    if (heldShift) heldShiftUsed = true
+    if (heldCtrl) heldCtrlUsed = true
   }
 
   function sendTabKey(def: SlotDef): void {
+    markHeldModifierUsed()
     if (def.text !== undefined) {
       let text = def.text
-      if (shift.isOn && text.length === 1) text = text.toUpperCase()
-      if (ctrlActive && text.length === 1) {
+      if (shiftOn() && text.length === 1) text = text.toUpperCase()
+      if (ctrlOn() && text.length === 1) {
         const upper = text.toUpperCase()
         if (CAPTURED_CTRL.has(upper)) {
           send({ msg: 'key', keycode: ctrlKeycode(upper) })
@@ -713,10 +811,11 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
   }
 
   function sendDpad(def: DpadDef): void {
+    markHeldModifierUsed()
     if ('text' in def) {
       send({ msg: 'input', text: def.text })
     } else {
-      const code = ctrlActive ? def.ctrled : shift.isOn ? def.shifted : def.plain
+      const code = ctrlOn() ? def.ctrled : shiftOn() ? def.shifted : def.plain
       send({ msg: 'key', keycode: code })
     }
     clearOneshot()
@@ -814,28 +913,19 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
   shiftBtn = document.createElement('button')
   shiftBtn.className = 'tc-shift'
   shiftBtn.textContent = '⇧'
-  shiftBtn.title = 'Shift modifier (tap = next key, double-tap = lock)'
-  function tapShift(): void {
-    const wasOff = shift.state === 'off'
-    shift.tap()
-    if (wasOff && ctrlActive) {
-      ctrlActive = false
-      refreshMods()
-    }
-  }
-  bindTap(shiftBtn, tapShift)
+  shiftBtn.title = 'Shift modifier (hold or tap; double-tap to lock)'
+  bindTap(shiftBtn, toggleShiftMod, {
+    hold: { start: beginShiftHold, end: endShiftHold, cancel: cancelShiftHold },
+  })
   footerEl.appendChild(shiftBtn)
 
   ctrlBtn = document.createElement('button')
   ctrlBtn.className = 'tc-ctrl'
   ctrlBtn.textContent = '⌃'
-  ctrlBtn.title = 'Ctrl modifier (next key only)'
-  function toggleCtrlMod() {
-    ctrlActive = !ctrlActive
-    if (ctrlActive) shift.reset()
-    refreshMods()
-  }
-  bindTap(ctrlBtn, toggleCtrlMod)
+  ctrlBtn.title = 'Ctrl modifier (hold or next key only)'
+  bindTap(ctrlBtn, toggleCtrlMod, {
+    hold: { start: beginCtrlHold, end: endCtrlHold, cancel: cancelCtrlHold },
+  })
   footerEl.appendChild(ctrlBtn)
 
   const kbdBtn = document.createElement('button')
@@ -972,7 +1062,7 @@ export function buildTouchControls(send: SendFn, opts: TouchControlsOpts = {}): 
   applyControlSet()
 
   function consumeShift(): boolean {
-    const on = shift.isOn
+    const on = shiftOn()
     shift.consume()
     return on
   }

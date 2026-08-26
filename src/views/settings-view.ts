@@ -440,7 +440,8 @@ function renderMsglogSection(body: HTMLElement): void {
   body.appendChild(el('h2', 'settings-h', 'Message log'))
   body.appendChild(el('p', 'settings-hint',
     'Recent messages shown over the map. Tap the log in-game for full history.'))
-  // Fake log both sliders manipulate. DOM order is newest-first: the preview
+  // Fake log (for when settings are opened from the main menu)
+  // that both sliders manipulate. DOM order is newest-first: the preview
   // is column-reverse like the real log, so index 0 lands at the visual
   // bottom and extra lines get trimmed off the top. Texts are real game
   // messages, wire-exact: the yellow opener is the game-start welcome spam
