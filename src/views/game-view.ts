@@ -717,6 +717,22 @@ export function buildGameView(
     setClientPanOffset({ x: 0, y: 0 })
   }
 
+  const normalMapPanEnabled = (): boolean => currentInputMode === 1
+    && cursorLoc === null && !inXMode
+    && uiStack.length === 0 && !crtActive && !dialogActive && !activeMenu
+    && activePromptEl === null && !moreActive
+    && !monsterPanelOpen && !minimapOpen
+
+  let pinchAnchor: { x: number; y: number } | null = null
+  let pendingPinchAnchor: {
+    anchor: { x: number; y: number }
+    midpoint: { x: number; y: number }
+  } | null = null
+  const clearPinchAnchor = (): void => {
+    pinchAnchor = null
+    pendingPinchAnchor = null
+  }
+
   // Continuous zoom supports both a conventional pinch and Google Maps-style
   // one-finger input: double-tap, hold the second tap, then drag vertically
   // (down = in, up = out). Both bind to mapWrap so they survive an in-place
@@ -736,6 +752,7 @@ export function buildGameView(
     onLongPress: ({ x, y }) => {
       mapPan?.cancel()
       zoomDrag?.cancel()
+      clearPinchAnchor()
       conn.send({ msg: 'click_cell', x, y, button: 3 })
     },
   })
@@ -746,18 +763,16 @@ export function buildGameView(
     // intentionally absent from this gate: its pending silent probe does not
     // own a visible UI or make this client-only interaction unsafe; the menu
     // or input-mode frame it produces will disable/cancel the drag normally.
-    enabled: () => currentInputMode === 1 && cursorLoc === null && !inXMode
-      && uiStack.length === 0 && !crtActive && !dialogActive && !activeMenu
-      && activePromptEl === null && !moreActive
-      && !monsterPanelOpen && !minimapOpen,
+    enabled: normalMapPanEnabled,
     acceptsTarget: target => target instanceof Element && !!target.closest('#map-grid'),
     onStart: () => {
       panStartOffset = { ...clientPanOffset }
       mapPress.cancel()
       zoomDrag?.cancel()
+      clearPinchAnchor()
     },
     onPan: (clientDX, clientDY) => {
-      const delta = mapView.cellDeltaAtClientDelta(clientDX, clientDY)
+      const delta = mapView.mapDeltaAtClientDelta(clientDX, clientDY)
       if (!delta) return
       // Dragging the world right/down moves the camera left/up.
       setClientPanOffset({
@@ -771,7 +786,7 @@ export function buildGameView(
     acceptsTarget: target => target instanceof Element && !!target.closest('#map-grid'),
     getScale: () => mapView.getZoomScale(),
     setScale: applyZoomScale,
-    onStart: () => { mapPress.cancel(); mapPan?.cancel() },
+    onStart: () => { mapPress.cancel(); mapPan?.cancel(); clearPinchAnchor() },
   })
   const pinchZoom = bindPinchZoom(mapWrap, {
     enabled: () => !inXMode,
@@ -780,7 +795,21 @@ export function buildGameView(
     setScale: applyZoomScale,
     // Once a second contact lands, it owns this sequence; a first contact must
     // not remain armed as the first tap of a later one-finger zoom.
-    onStart: () => { mapPress.cancel(); mapPan?.cancel(); zoomDrag?.cancel() },
+    onStart: midpoint => {
+      mapPress.cancel()
+      mapPan?.cancel()
+      zoomDrag?.cancel()
+      clearPinchAnchor()
+      if (normalMapPanEnabled()) {
+        pinchAnchor = mapView.mapPointAtClientPoint(midpoint.x, midpoint.y)
+      }
+    },
+    onChange: (scale, midpoint) => {
+      pendingPinchAnchor = pinchAnchor && normalMapPanEnabled()
+        ? { anchor: pinchAnchor, midpoint }
+        : null
+      applyZoomScale(scale)
+    },
   })
 
   // Tap the compact monster list to open the full-screen GUI variant.
@@ -1021,6 +1050,18 @@ export function buildGameView(
     requestAnimationFrame(() => {
       fitQueued = false
       mapView.fitToContainer()
+      const pending = pendingPinchAnchor
+      pendingPinchAnchor = null
+      if (!pending || !normalMapPanEnabled()) return
+      const current = mapView.mapPointAtClientPoint(pending.midpoint.x, pending.midpoint.y)
+      if (!current) return
+      const center = effectiveViewCenter()
+      // Shift the fractional camera so the dungeon point captured beneath the
+      // initial midpoint remains exactly beneath the moving midpoint.
+      setClientPanOffset({
+        x: center.x + pending.anchor.x - current.x - serverViewCenter.x,
+        y: center.y + pending.anchor.y - current.y - serverViewCenter.y,
+      })
     })
   }
   const fontScaleObserver = new ResizeObserver(() => {
@@ -1044,6 +1085,7 @@ export function buildGameView(
     mapPress.cancel()
     mapPan?.cancel()
     zoomDrag?.cancel()
+    clearPinchAnchor()
     pinchZoom.cancel()
     fontScaleObserver.unobserve(mapView.element)
     const oldEl = mapView.element
@@ -1510,6 +1552,9 @@ export function buildGameView(
           }
         }
         if (msg.clear) {
+          mapPan?.cancel()
+          clearPinchAnchor()
+          pinchZoom.cancel()
           store.clear()
           clientPanOffset = { x: 0, y: 0 }
         }
@@ -1929,6 +1974,7 @@ export function buildGameView(
           mapPress.cancel()
           mapPan?.cancel()
           zoomDrag?.cancel()
+          clearPinchAnchor()
           pinchZoom.cancel()
           resetClientPan()
         }
@@ -2105,6 +2151,7 @@ export function buildGameView(
           mapPress.cancel()
           mapPan?.cancel()
           zoomDrag?.cancel()
+          clearPinchAnchor()
           pinchZoom.cancel()
           resetClientPan()
         }

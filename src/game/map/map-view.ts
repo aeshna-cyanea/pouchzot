@@ -2,7 +2,9 @@ import type { MapStore } from './map-store'
 import { parseCellKey } from './map-store'
 import { decodeColor, DEFAULT_BG, flashColor } from './colors'
 import { clampMapZoom } from './zoom-gesture'
-import { mapCellAtClientPoint, mapCellDeltaFromClientDelta } from './map-coordinates'
+import {
+  mapCellAtClientPoint, mapDeltaFromClientDelta, mapPointAtClientPoint,
+} from './map-coordinates'
 
 const NORMAL_W = 33
 const NORMAL_H = 21
@@ -32,7 +34,8 @@ export class MapView {
   private centerRow = Math.floor(NORMAL_H / 2)
   private fontScale = 1.0
   private zoomScale = 1.0
-  // Absolute viewport center (matches vgrdc from server). In normal play equals playerPos.
+  // Absolute viewport center. The integer part selects which dungeon cells to
+  // paint; the fractional part becomes a CSS translation for smooth panning.
   private viewCenter = { x: 0, y: 0 }
   private cursorLoc: { x: number; y: number } | null = null
   private cursorSpan: HTMLSpanElement | null = null
@@ -55,14 +58,15 @@ export class MapView {
     return this.container
   }
 
-  // Set the absolute viewport center (from vgrdc or playerPos). Returns
-  // true if the center actually moved — the server resends vgrdc on every
-  // map message (even when nothing panned), so callers gate fullRender on
-  // this to keep the dirty-render path live in steady state.
+  // Set the absolute viewport center (server vgrdc + optional client offset).
+  // Returns true only when the integer render origin moved; fractional-only
+  // movement updates the cheap CSS translation without requiring a repaint.
   setViewCenter(c: { x: number; y: number }): boolean {
-    const changed = c.x !== this.viewCenter.x || c.y !== this.viewCenter.y
+    const prevX = Math.round(this.viewCenter.x)
+    const prevY = Math.round(this.viewCenter.y)
     this.viewCenter = { ...c }
-    return changed
+    this.updateVisualOffset()
+    return Math.round(c.x) !== prevX || Math.round(c.y) !== prevY
   }
 
   // No-op in ASCII mode: HP/MP live in the HUD, not under the player glyph.
@@ -207,6 +211,7 @@ export class MapView {
     // early-exited (same dimensions), repaint explicitly.
     const resized = this.setViewportSize(w, h)
     if (!resized && this.centerRow !== prevCenterRow) this.fullRender()
+    this.updateVisualOffset()
   }
 
   // Returns true if the grid was rebuilt (and therefore fully re-rendered);
@@ -227,14 +232,15 @@ export class MapView {
     const h = Math.max(MIN_VIEW_AXIS, Math.floor(NORMAL_H / effectiveZoom))
     this.centerRow = Math.floor(h / 2)
     this.setViewportSize(w, h)
+    this.updateVisualOffset()
   }
 
   // Screen↔dungeon origin: the top-left dungeon coord of the viewport. Screen
   // cell (col,row) ↔ dungeon (offX+col, offY+row). One definition each so the
   // centering rule lives in a single place (see CLAUDE.md coordinate system).
   // Vertically the center is `centerRow`, not the middle row — see the field.
-  private get offX(): number { return this.viewCenter.x - Math.floor(this.viewportW / 2) }
-  private get offY(): number { return this.viewCenter.y - this.centerRow }
+  private get offX(): number { return Math.round(this.viewCenter.x) - Math.floor(this.viewportW / 2) }
+  private get offY(): number { return Math.round(this.viewCenter.y) - this.centerRow }
   private inView(col: number, row: number): boolean {
     return col >= 0 && col < this.viewportW && row >= 0 && row < this.viewportH
   }
@@ -264,11 +270,30 @@ export class MapView {
     return rendered ? mapCellAtClientPoint(clientX, clientY, rendered, this.viewRect()) : null
   }
 
-  cellDeltaAtClientDelta(clientDX: number, clientDY: number): { x: number; y: number } | null {
+  mapPointAtClientPoint(clientX: number, clientY: number): { x: number; y: number } | null {
+    const rendered = this.renderedCellRect()
+    return rendered ? mapPointAtClientPoint(clientX, clientY, rendered, this.viewRect()) : null
+  }
+
+  mapDeltaAtClientDelta(clientDX: number, clientDY: number): { x: number; y: number } | null {
     const rendered = this.renderedCellRect()
     return rendered
-      ? mapCellDeltaFromClientDelta(clientDX, clientDY, rendered, this.viewRect())
+      ? mapDeltaFromClientDelta(clientDX, clientDY, rendered, this.viewRect())
       : null
+  }
+
+  private updateVisualOffset(): void {
+    const fracX = Math.round(this.viewCenter.x) - this.viewCenter.x
+    const fracY = Math.round(this.viewCenter.y) - this.viewCenter.y
+    if (Math.abs(fracX) < 1e-9 && Math.abs(fracY) < 1e-9) {
+      this.container.style.transform = ''
+      return
+    }
+    const rendered = this.renderedCellRect()
+    if (!rendered || rendered.width <= 0 || rendered.height <= 0) return
+    const x = fracX * rendered.width / this.viewportW
+    const y = fracY * rendered.height / this.viewportH
+    this.container.style.transform = `translate3d(${x}px, ${y}px, 0)`
   }
 
   // Re-render the viewport centered on viewCenter.

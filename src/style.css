@@ -1473,6 +1473,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   min-height: 0;
   overflow: hidden;
   display: flex;
+  background: #000000;
 }
 #map-wrap > #map-grid { flex: 1; }
 

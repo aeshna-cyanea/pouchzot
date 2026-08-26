@@ -105,6 +105,14 @@ function mapPointer(el: HTMLElement, type: string, clientX: number, clientY: num
   el.dispatchEvent(e)
 }
 
+function mapTouch(el: HTMLElement, type: string, points: Array<[number, number]>): void {
+  const e = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperty(e, 'touches', {
+    value: points.map(([clientX, clientY]) => ({ clientX, clientY })),
+  })
+  el.dispatchEvent(e)
+}
+
 function stubAsciiMapBounds(h: Harness): HTMLElement {
   const spans = h.view.querySelectorAll<HTMLElement>('#map-grid span')
   const first = spans[0]
@@ -434,6 +442,22 @@ describe('map message → store merge', () => {
     }
   })
 
+  it('retains sub-cell drag distance as a visual map translation', () => {
+    const h = setup()
+    h.dispatch({ msg: 'input_mode', mode: 1 })
+    h.dispatch({ msg: 'map', vgrdc: { x: 50, y: 80 }, cells: [] })
+    const cell = stubAsciiMapBounds(h)
+    const grid = h.view.querySelector<HTMLElement>('#map-grid')!
+
+    // 15 px is 1.5 cells under these bounds. The backing origin moves one
+    // cell and the remaining half-cell stays as a 5 px visual translation.
+    mapPointer(cell, 'pointerdown', 100, 100)
+    mapPointer(cell, 'pointermove', 115, 100)
+    expect(grid.style.transform).toBe('translate3d(5px, 0px, 0)')
+    mapPointer(cell, 'pointerup', 115, 100)
+    expect(grid.style.transform).toBe('translate3d(5px, 0px, 0)')
+  })
+
   it('returns to the server camera and disables panning when targeting starts', () => {
     vi.useFakeTimers()
     try {
@@ -457,6 +481,28 @@ describe('map message → store merge', () => {
       expect(sent(h).filter(m => m.msg === 'click_cell')).toEqual([
         { msg: 'click_cell', x: 39, y: 77, button: 1 },
       ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('pans from two-finger midpoint travel without changing finger span', () => {
+    vi.useFakeTimers()
+    try {
+      const h = setup()
+      h.dispatch({ msg: 'input_mode', mode: 1 })
+      h.dispatch({ msg: 'map', vgrdc: { x: 50, y: 80 }, cells: [] })
+      const cell = stubAsciiMapBounds(h)
+
+      mapTouch(cell, 'touchstart', [[100, 100], [200, 100]])
+      mapTouch(cell, 'touchmove', [[120, 100], [220, 100]])
+      mapTouch(cell, 'touchend', [])
+      vi.runAllTimers()
+
+      mapPointer(cell, 'pointerdown', 65, 95)
+      mapPointer(cell, 'pointerup', 65, 95)
+      vi.advanceTimersByTime(300)
+      expect(sent(h)).toContainEqual({ msg: 'click_cell', x: 37, y: 77, button: 1 })
     } finally {
       vi.useRealTimers()
     }

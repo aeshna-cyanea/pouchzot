@@ -13,7 +13,9 @@ import { fgFlags, bgFlags } from './flag-decode'
 import { getStatusIconSizer, type StatusIconSizer } from './icon-sizes'
 import { buildStatusOverlays, fgHaloDngnName, fgThreatDngnName, resolveOverlayId } from '../hud/monster-style'
 import { clampMapZoom } from './zoom-gesture'
-import { mapCellAtClientPoint, mapCellDeltaFromClientDelta } from './map-coordinates'
+import {
+  mapCellAtClientPoint, mapDeltaFromClientDelta, mapPointAtClientPoint,
+} from './map-coordinates'
 
 // Tile-mode minimum viewport. Square because tile cells are square; 21×21
 // is roughly the smallest cell count where a phone-sized container still
@@ -98,6 +100,8 @@ export class TileMapView {
   // Named `renderScale` internally; setFontScale() stores into it for API
   // parity with the ASCII view.
   private renderScale = 1.0
+  // Integer coordinates select backing-canvas cells; a fractional client pan
+  // is retained as a cheap CSS translation between cell crossings.
   private viewCenter = { x: 0, y: 0 }
   private cursorLoc: { x: number; y: number } | null = null
   // Latest player HP/MP, for the mini-bars drawn under the player tile (the
@@ -237,12 +241,14 @@ export class TileMapView {
 
   get element(): HTMLElement { return this.container }
 
-  // Returns true if the center actually moved — see MapView.setViewCenter for
-  // the rationale (vgrdc is resent on every map message in steady state).
+  // Returns true only when the integer render origin moved; see MapView's
+  // parallel API for the fractional-translation rationale.
   setViewCenter(c: { x: number; y: number }): boolean {
-    const changed = c.x !== this.viewCenter.x || c.y !== this.viewCenter.y
+    const prevX = Math.round(this.viewCenter.x)
+    const prevY = Math.round(this.viewCenter.y)
     this.viewCenter = { ...c }
-    return changed
+    this.updateVisualOffset()
+    return Math.round(c.x) !== prevX || Math.round(c.y) !== prevY
   }
   // Mirrors MapView.setFontScale. Stored as a multiplier on cellPx, applied
   // in fitToContainer. X-mode calls this with 0.7 to zoom out (smaller cells
@@ -318,6 +324,7 @@ export class TileMapView {
     if (!resized && (this.centerCol !== prevCenterCol || this.centerRow !== prevCenterRow)) {
       this.fullRender()
     }
+    this.updateVisualOffset()
   }
 
   // Returns true if the canvas was reconfigured (and therefore fully
@@ -354,14 +361,15 @@ export class TileMapView {
     this.centerCol = Math.floor(axis / 2)
     this.centerRow = Math.floor(axis / 2)
     this.setViewportSize(axis, axis)
+    this.updateVisualOffset()
   }
 
   // Screen↔dungeon origin: the top-left dungeon coord of the viewport. Screen
   // cell (col,row) ↔ dungeon (offX+col, offY+row). One definition each so the
   // centering rule lives in a single place (see CLAUDE.md coordinate system).
   // The center is `centerCol`/`centerRow`, not the middle cell — see the fields.
-  private get offX(): number { return this.viewCenter.x - this.centerCol }
-  private get offY(): number { return this.viewCenter.y - this.centerRow }
+  private get offX(): number { return Math.round(this.viewCenter.x) - this.centerCol }
+  private get offY(): number { return Math.round(this.viewCenter.y) - this.centerRow }
   // Viewport origin as of the last complete paint (fullRender sweep or
   // panRender blit) — panRender's blit is valid only relative to this.
   // Stamped after painting, so canvas reconfiguration (setViewportSize wipes
@@ -390,13 +398,32 @@ export class TileMapView {
     )
   }
 
-  cellDeltaAtClientDelta(clientDX: number, clientDY: number): { x: number; y: number } | null {
-    return mapCellDeltaFromClientDelta(
+  mapPointAtClientPoint(clientX: number, clientY: number): { x: number; y: number } | null {
+    return mapPointAtClientPoint(
+      clientX,
+      clientY,
+      this.canvas.getBoundingClientRect(),
+      this.viewRect(),
+    )
+  }
+
+  mapDeltaAtClientDelta(clientDX: number, clientDY: number): { x: number; y: number } | null {
+    return mapDeltaFromClientDelta(
       clientDX,
       clientDY,
       this.canvas.getBoundingClientRect(),
       this.viewRect(),
     )
+  }
+
+  private updateVisualOffset(): void {
+    const fracX = Math.round(this.viewCenter.x) - this.viewCenter.x
+    const fracY = Math.round(this.viewCenter.y) - this.viewCenter.y
+    if (Math.abs(fracX) < 1e-9 && Math.abs(fracY) < 1e-9) {
+      this.container.style.transform = ''
+      return
+    }
+    this.container.style.transform = `translate3d(${fracX * this.cellPx}px, ${fracY * this.cellPx}px, 0)`
   }
 
   render(dirty?: Set<string>): void {

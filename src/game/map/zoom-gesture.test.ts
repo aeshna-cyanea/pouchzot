@@ -151,6 +151,7 @@ describe('pinch zoom gesture', () => {
     const h = setup()
     touch(h.map, 'touchstart', [[100, 100], [200, 100]])
     expect(h.onStart).toHaveBeenCalledOnce()
+    expect(h.onStart).toHaveBeenCalledWith({ x: 150, y: 100 })
     touch(h.map, 'touchmove', [[50, 100], [250, 100]])
     expect(h.scale()).toBe(2)
     touch(h.map, 'touchend', [])
@@ -165,6 +166,28 @@ describe('pinch zoom gesture', () => {
     touch(h.map, 'touchstart', [[100, 100], [200, 100]])
     touch(h.map, 'touchmove', [[98, 100], [202, 100]])
     expect(h.setScale).not.toHaveBeenCalled()
+  })
+
+  it('activates on midpoint travel with a fixed span and reports pan plus scale together', () => {
+    const host = document.createElement('div')
+    const map = document.createElement('div')
+    map.id = 'map-grid'
+    host.appendChild(map)
+    document.body.appendChild(host)
+    const setScale = vi.fn()
+    const onChange = vi.fn()
+    bindPinchZoom(host, {
+      enabled: () => true,
+      acceptsTarget: target => target instanceof Element && !!target.closest('#map-grid'),
+      getScale: () => 1,
+      setScale,
+      onChange,
+    })
+
+    touch(map, 'touchstart', [[100, 100], [200, 100]])
+    touch(map, 'touchmove', [[120, 115], [220, 115]])
+    expect(onChange).toHaveBeenCalledWith(1, { x: 170, y: 115 })
+    expect(setScale).not.toHaveBeenCalled()
   })
 
   it('requires exactly two map contacts', () => {

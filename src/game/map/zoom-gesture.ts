@@ -9,6 +9,7 @@ const DOUBLE_TAP_MS = 300
 const DOUBLE_TAP_SLOP = 30
 const DRAG_SLOP = 4
 const PINCH_SLOP = 8
+const PINCH_PAN_SLOP = 8
 // Moving one phone-height-ish span would be far too sensitive. 240 px per
 // doubling gives a thumb enough travel for fine adjustment while still
 // reaching the full range in one comfortable drag.
@@ -46,10 +47,19 @@ export interface ZoomDragBinding {
   destroy: () => void
 }
 
-export interface PinchZoomOptions extends ZoomDragOptions {
+export interface PinchPoint {
+  x: number
+  y: number
+}
+
+export interface PinchZoomOptions extends Omit<ZoomDragOptions, 'onStart'> {
   // Lets the host cancel a pending one-finger recognizer as soon as the
-  // second contact makes this a pinch candidate.
-  onStart?: () => void
+  // second contact makes this a pinch candidate. The midpoint lets it capture
+  // the map location that should remain anchored beneath the gesture.
+  onStart?: (midpoint: PinchPoint) => void
+  // When present, owns both scale and midpoint updates. The simpler setScale
+  // fallback preserves the standalone recognizer API for hosts that only zoom.
+  onChange?: (scale: number, midpoint: PinchPoint) => void
 }
 
 // Google-Maps-style one-finger zoom: tap once, then press the second tap and
@@ -139,10 +149,20 @@ function touchSpan(a: Touch, b: Touch): number {
   return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY)
 }
 
-// Conventional two-finger pinch. The small span slop keeps contact jitter
-// from rebuilding the map before the user has expressed a zoom direction.
+function touchMidpoint(a: Touch, b: Touch): PinchPoint {
+  return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 }
+}
+
+// Conventional two-finger direct manipulation. Span changes zoom while
+// midpoint changes pan; small independent slop thresholds keep contact jitter
+// from rebuilding the map before the user has expressed either intent.
 export function bindPinchZoom(element: HTMLElement, opts: PinchZoomOptions): ZoomDragBinding {
-  let pinch: { startSpan: number; startScale: number; active: boolean } | null = null
+  let pinch: {
+    startSpan: number
+    startScale: number
+    startMidpoint: PinchPoint
+    active: boolean
+  } | null = null
 
   const clear = (): void => { pinch = null }
 
@@ -153,17 +173,27 @@ export function bindPinchZoom(element: HTMLElement, opts: PinchZoomOptions): Zoo
     }
     const span = touchSpan(e.touches[0], e.touches[1])
     if (span <= 0) { clear(); return }
-    opts.onStart?.()
-    pinch = { startSpan: span, startScale: opts.getScale(), active: false }
+    const midpoint = touchMidpoint(e.touches[0], e.touches[1])
+    opts.onStart?.(midpoint)
+    pinch = { startSpan: span, startScale: opts.getScale(), startMidpoint: midpoint, active: false }
   }
 
   const onTouchMove = (e: TouchEvent): void => {
     if (!pinch) return
     if (e.touches.length !== 2) { clear(); return }
     const span = touchSpan(e.touches[0], e.touches[1])
-    if (!pinch.active && Math.abs(span - pinch.startSpan) < PINCH_SLOP) return
+    const midpoint = touchMidpoint(e.touches[0], e.touches[1])
+    const midpointTravel = Math.hypot(
+      midpoint.x - pinch.startMidpoint.x,
+      midpoint.y - pinch.startMidpoint.y,
+    )
+    if (!pinch.active
+      && Math.abs(span - pinch.startSpan) < PINCH_SLOP
+      && midpointTravel < PINCH_PAN_SLOP) return
     pinch.active = true
-    opts.setScale(zoomFromPinch(pinch.startScale, pinch.startSpan, span))
+    const scale = zoomFromPinch(pinch.startScale, pinch.startSpan, span)
+    if (opts.onChange) opts.onChange(scale, midpoint)
+    else opts.setScale(scale)
     e.preventDefault()
   }
 

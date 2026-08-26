@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { mapCellAtClientPoint, mapCellDeltaFromClientDelta } from './map-coordinates'
+import {
+  mapCellAtClientPoint, mapDeltaFromClientDelta, mapPointAtClientPoint,
+} from './map-coordinates'
 
 describe('mapCellAtClientPoint', () => {
   const rendered = { left: -5, top: 10, width: 210, height: 210 }
@@ -18,12 +20,17 @@ describe('mapCellAtClientPoint', () => {
     expect(mapCellAtClientPoint(0, 20, { ...rendered, width: 0 }, map)).toBeNull()
   })
 
-  it('converts client drag distance into symmetric whole-cell deltas', () => {
-    expect(mapCellDeltaFromClientDelta(14, -15, rendered, map)).toEqual({ x: 1, y: -2 })
-    expect(mapCellDeltaFromClientDelta(4.9, -4.9, { width: 210, height: 210 }, map))
-      .toEqual({ x: 0, y: 0 })
-    expect(mapCellDeltaFromClientDelta(5, -5, { width: 210, height: 210 }, map))
-      .toEqual({ x: 1, y: -1 })
-    expect(mapCellDeltaFromClientDelta(10, 10, { width: 0, height: 10 }, map)).toBeNull()
+  it('maps continuous points and extrapolates for a captured gesture', () => {
+    expect(mapPointAtClientPoint(100, 115, rendered, map)).toEqual({ x: 50.5, y: 80.5 })
+    expect(mapPointAtClientPoint(-15, 0, rendered, map)).toEqual({ x: 39, y: 69 })
+    expect(mapPointAtClientPoint(0, 0, { ...rendered, height: 0 }, map)).toBeNull()
+  })
+
+  it('converts client drag distance into continuous map-cell deltas', () => {
+    expect(mapDeltaFromClientDelta(14, -15, rendered, map)).toEqual({ x: 1.4, y: -1.5 })
+    const small = mapDeltaFromClientDelta(4.9, -4.9, { width: 210, height: 210 }, map)!
+    expect(small.x).toBeCloseTo(0.49)
+    expect(small.y).toBeCloseTo(-0.49)
+    expect(mapDeltaFromClientDelta(10, 10, { width: 0, height: 10 }, map)).toBeNull()
   })
 })
