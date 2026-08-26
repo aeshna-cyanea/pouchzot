@@ -34,6 +34,9 @@ export interface ZoomDragOptions {
   acceptsTarget: (target: EventTarget | null) => boolean
   getScale: () => number
   setScale: (scale: number) => void
+  // The held second tap has claimed this contact sequence. Hosts use this to
+  // cancel a pending ordinary map tap before it reaches the server.
+  onStart?: () => void
 }
 
 export interface ZoomDragBinding {
@@ -74,6 +77,7 @@ export function bindZoomDrag(element: HTMLElement, opts: ZoomDragOptions): ZoomD
       const dx = e.clientX - lastTap.x
       const dy = e.clientY - lastTap.y
       if (dt > 0 && dt < DOUBLE_TAP_MS && dx * dx + dy * dy < DOUBLE_TAP_SLOP ** 2) {
+        opts.onStart?.()
         drag = {
           pointerId: e.pointerId,
           startY: e.clientY,

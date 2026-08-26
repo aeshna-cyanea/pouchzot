@@ -61,13 +61,15 @@ describe('double-tap-hold zoom gesture', () => {
     document.body.appendChild(host)
     let scale = 1
     const setScale = vi.fn((next: number) => { scale = next })
+    const onStart = vi.fn()
     const binding = bindZoomDrag(host, {
       enabled: () => true,
       acceptsTarget: target => target instanceof Element && !!target.closest('#map-grid'),
       getScale: () => scale,
       setScale,
+      onStart,
     })
-    return { host, map, setScale, binding, scale: () => scale }
+    return { host, map, setScale, onStart, binding, scale: () => scale }
   }
 
   it('zooms continuously when the held second tap moves vertically', () => {
@@ -75,6 +77,7 @@ describe('double-tap-hold zoom gesture', () => {
     pointer(h.map, 'pointerdown', { timeStamp: 100, clientY: 100 })
     pointer(h.map, 'pointerup', { timeStamp: 120, clientY: 100 })
     pointer(h.map, 'pointerdown', { timeStamp: 220, clientY: 100 })
+    expect(h.onStart).toHaveBeenCalledOnce()
     pointer(h.map, 'pointermove', { timeStamp: 240, clientY: 160 })
     expect(h.setScale).toHaveBeenCalledOnce()
     expect(h.scale()).toBeCloseTo(2 ** 0.25)

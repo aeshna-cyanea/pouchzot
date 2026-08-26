@@ -5,6 +5,7 @@ import { MapStore } from '../game/map/map-store'
 import { MapView } from '../game/map/map-view'
 import { TileMapView } from '../game/map/tile-map-view'
 import { bindPinchZoom, bindZoomDrag } from '../game/map/zoom-gesture'
+import { bindMapPress } from '../game/map/map-press'
 import { StatsView } from '../game/hud/stats-view'
 import { StatusView } from '../game/hud/status-view'
 import { MonsterListView } from '../game/hud/monster-list'
@@ -703,11 +704,19 @@ export function buildGameView(
     mapView.setZoomScale(scale)
     scheduleFit()
   }
+  const mapPress = bindMapPress(mapWrap, {
+    enabled: () => !spectating,
+    acceptsTarget: target => target instanceof Element && !!target.closest('#map-grid'),
+    resolvePoint: (clientX, clientY) => mapView.cellAtClientPoint(clientX, clientY),
+    onTap: ({ x, y }) => conn.send({ msg: 'click_cell', x, y, button: 1 }),
+    onLongPress: ({ x, y }) => conn.send({ msg: 'click_cell', x, y, button: 3 }),
+  })
   const zoomDrag = bindZoomDrag(mapWrap, {
     enabled: () => !inXMode,
     acceptsTarget: target => target instanceof Element && !!target.closest('#map-grid'),
     getScale: () => mapView.getZoomScale(),
     setScale: applyZoomScale,
+    onStart: () => mapPress.cancel(),
   })
   const pinchZoom = bindPinchZoom(mapWrap, {
     enabled: () => !inXMode,
@@ -716,7 +725,7 @@ export function buildGameView(
     setScale: applyZoomScale,
     // Once a second contact lands, it owns this sequence; a first contact must
     // not remain armed as the first tap of a later one-finger zoom.
-    onStart: () => zoomDrag.cancel(),
+    onStart: () => { mapPress.cancel(); zoomDrag.cancel() },
   })
 
   // Tap the compact monster list to open the full-screen GUI variant.
@@ -977,6 +986,9 @@ export function buildGameView(
     view.classList.toggle('tiles-mode', mode === 'tiles')
     const center = { x: store.playerPos.x, y: store.playerPos.y }
     const zoomScale = mapView.getZoomScale()
+    mapPress.cancel()
+    zoomDrag.cancel()
+    pinchZoom.cancel()
     fontScaleObserver.unobserve(mapView.element)
     const oldEl = mapView.element
     const next: MapView | TileMapView = mode === 'tiles' ? new TileMapView(store) : new MapView(store)
@@ -1100,6 +1112,7 @@ export function buildGameView(
     closeWatcher = null
     zoomDrag.destroy()
     pinchZoom.destroy()
+    mapPress.destroy()
     touchControls.destroy()
     onLobby(exit)
   }

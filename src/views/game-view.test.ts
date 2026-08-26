@@ -92,6 +92,32 @@ const msgRows = (h: Harness) => [...msgLog(h).querySelectorAll<HTMLElement>('.ga
 // reverse of DOM order — undo that here so assertions read naturally.
 const msgTexts = (h: Harness) => msgRows(h).map(r => r.textContent?.trim()).reverse()
 
+function mapPointer(el: HTMLElement, type: string, clientX: number, clientY: number): void {
+  const e = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperties(e, {
+    button: { value: 0 },
+    isPrimary: { value: true },
+    pointerId: { value: 1 },
+    pointerType: { value: 'touch' },
+    clientX: { value: clientX },
+    clientY: { value: clientY },
+  })
+  el.dispatchEvent(e)
+}
+
+function stubAsciiMapBounds(h: Harness): HTMLElement {
+  const spans = h.view.querySelectorAll<HTMLElement>('#map-grid span')
+  const first = spans[0]
+  const last = spans[spans.length - 1]
+  vi.spyOn(first, 'getBoundingClientRect').mockReturnValue({
+    left: 10, top: 20, right: 20, bottom: 30, width: 10, height: 10,
+  } as DOMRect)
+  vi.spyOn(last, 'getBoundingClientRect').mockReturnValue({
+    left: 330, top: 220, right: 340, bottom: 230, width: 10, height: 10,
+  } as DOMRect)
+  return spans[7 * 33 + 5]
+}
+
 describe('message log (msgs)', () => {
   it('prepends rows so the newest sits at the visual bottom (DOM firstChild)', () => {
     const h = setup()
@@ -348,6 +374,39 @@ describe('map message → store merge', () => {
     expect(grid.textContent).not.toContain('@')
     h.dispatch({ msg: 'map', vgrdc: { x: 5, y: 6 }, cells: [{ x: 5, y: 6, g: '@', col: 7 }] })
     expect(grid.textContent).toContain('@')
+  })
+
+  it('sends a tap as a WebTiles left click at the tapped dungeon cell', () => {
+    vi.useFakeTimers()
+    try {
+      const h = setup()
+      h.dispatch({ msg: 'map', vgrdc: { x: 50, y: 80 }, cells: [] })
+      const cell = stubAsciiMapBounds(h)
+      mapPointer(cell, 'pointerdown', 65, 95)
+      mapPointer(cell, 'pointerup', 65, 95)
+      vi.advanceTimersByTime(300)
+      expect(sent(h)).toContainEqual({ msg: 'click_cell', x: 39, y: 77, button: 1 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sends a long press as one WebTiles right click with no left click', () => {
+    vi.useFakeTimers()
+    try {
+      const h = setup()
+      h.dispatch({ msg: 'map', vgrdc: { x: 50, y: 80 }, cells: [] })
+      const cell = stubAsciiMapBounds(h)
+      mapPointer(cell, 'pointerdown', 65, 95)
+      vi.advanceTimersByTime(500)
+      mapPointer(cell, 'pointerup', 65, 95)
+      vi.runAllTimers()
+      expect(sent(h).filter(m => m.msg === 'click_cell')).toEqual([
+        { msg: 'click_cell', x: 39, y: 77, button: 3 },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

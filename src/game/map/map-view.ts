@@ -2,6 +2,7 @@ import type { MapStore } from './map-store'
 import { parseCellKey } from './map-store'
 import { decodeColor, DEFAULT_BG, flashColor } from './colors'
 import { clampMapZoom } from './zoom-gesture'
+import { mapCellAtClientPoint } from './map-coordinates'
 
 const NORMAL_W = 33
 const NORMAL_H = 21
@@ -242,6 +243,20 @@ export class MapView {
   // minimap's you-are-here rectangle.
   viewRect(): { x: number; y: number; w: number; h: number } {
     return { x: this.offX, y: this.offY, w: this.viewportW, h: this.viewportH }
+  }
+
+  cellAtClientPoint(clientX: number, clientY: number): { x: number; y: number } | null {
+    const first = this.spans[0]?.[0]
+    const last = this.spans[this.viewportH - 1]?.[this.viewportW - 1]
+    if (!first || !last) return null
+    const a = first.getBoundingClientRect()
+    const b = last.getBoundingClientRect()
+    return mapCellAtClientPoint(clientX, clientY, {
+      left: a.left,
+      top: a.top,
+      width: b.right - a.left,
+      height: b.bottom - a.top,
+    }, this.viewRect())
   }
 
   // Re-render the viewport centered on viewCenter.

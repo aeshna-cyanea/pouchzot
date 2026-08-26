@@ -13,6 +13,7 @@ import { fgFlags, bgFlags } from './flag-decode'
 import { getStatusIconSizer, type StatusIconSizer } from './icon-sizes'
 import { buildStatusOverlays, fgHaloDngnName, fgThreatDngnName, resolveOverlayId } from '../hud/monster-style'
 import { clampMapZoom } from './zoom-gesture'
+import { mapCellAtClientPoint } from './map-coordinates'
 
 // Tile-mode minimum viewport. Square because tile cells are square; 21×21
 // is roughly the smallest cell count where a phone-sized container still
@@ -378,6 +379,15 @@ export class TileMapView {
   // minimap's you-are-here rectangle.
   viewRect(): { x: number; y: number; w: number; h: number } {
     return { x: this.offX, y: this.offY, w: this.viewportW, h: this.viewportH }
+  }
+
+  cellAtClientPoint(clientX: number, clientY: number): { x: number; y: number } | null {
+    return mapCellAtClientPoint(
+      clientX,
+      clientY,
+      this.canvas.getBoundingClientRect(),
+      this.viewRect(),
+    )
   }
 
   render(dirty?: Set<string>): void {
