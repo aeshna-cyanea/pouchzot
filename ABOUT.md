@@ -35,6 +35,8 @@ Obligatory virtual keyboard also available.
 ## Gestures
 
 - Pinch to zoom. Alternatively, double tap and hold, then drag vertically.
+- Drag the map to pan it. Escape recenters a panned camera without also
+  canceling the server action; X recenters before opening examine mode.
 - Double tap Shift to lock it
 - Tap place name in HUD (e.g. @D:1) to toggle minimap
 - Tap floating monster list for full view, then tap monster to inspect

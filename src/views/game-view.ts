@@ -462,10 +462,19 @@ export function buildGameView(
     uiQuiet: () => uiQuiet(),
     onSpellsChanged: () => exposeSpellCache(),
   }, !!spectating)
-  // Local aliases so the many guard sites read the same as before the
-  // extraction. See SpellHarvester for what each means.
-  const isHarvesting = (): boolean => harvester.isHarvesting()
-  const commandChannelIdle = (): boolean => harvester.channelIdle()
+
+  // One boundary for user-originated DCSS input while the silent I → menu →
+  // Esc exchange owns the command channel. The harvester itself deliberately
+  // sends through conn above, so its closing Esc cannot block on its own lock.
+  // Local-only interactions (map pan/zoom, panels, chat) remain available.
+  function withGameInput(send: () => void): boolean {
+    if (harvester.isHarvesting()) return false
+    send()
+    return true
+  }
+  function sendGameInput(msg: ClientMsg): boolean {
+    return withGameInput(() => conn.send(msg))
+  }
 
   // Spell rail: a persistent row of quick-cast buttons floated over the map's
   // bottom edge in portrait (landscape slots it into the sidebar `spells`
@@ -615,11 +624,10 @@ export function buildGameView(
   // Shared formatting with the settings-card log preview — see .msglog-box.
   msgLog.className = 'msglog-box'
   msgLog.addEventListener('click', (e) => {
-    if (isHarvesting()) return
     if (uiOverlay.style.display === 'none' && !(e.target as HTMLElement).closest('button, input, .game-text-input-row')) {
       // While --more-- is up the whole framed log is the dismiss target
       // (Space); otherwise a tap opens scrollback (Ctrl-P).
-      conn.send({ msg: 'key', keycode: moreActive ? 32 : 16 })
+      sendGameInput({ msg: 'key', keycode: moreActive ? 32 : 16 })
       focusView()
     }
   })
@@ -750,21 +758,20 @@ export function buildGameView(
     enabled: () => !spectating,
     acceptsTarget: target => target instanceof Element && !!target.closest('#map-grid'),
     resolvePoint: (clientX, clientY) => mapView.cellAtClientPoint(clientX, clientY),
-    onTap: ({ x, y }) => conn.send({ msg: 'click_cell', x, y, button: 1 }),
+    onTap: ({ x, y }) => sendGameInput({ msg: 'click_cell', x, y, button: 1 }),
     onLongPress: ({ x, y }) => {
       mapPan?.cancel()
       zoomDrag?.cancel()
       clearPinchAnchor()
-      conn.send({ msg: 'click_cell', x, y, button: 3 })
+      sendGameInput({ msg: 'click_cell', x, y, button: 3 })
     },
   })
   let panStartOffset = { x: 0, y: 0 }
   mapPan = bindMapPan(mapWrap, {
     // Client panning is deliberately an ordinary-play interaction. Targeting
-    // and examine modes cannot add to the retained client offset. The spell
-    // harvester is intentionally absent from this gate: its pending silent
-    // probe does not own a visible UI or make this client-only interaction
-    // unsafe; the menu or input-mode frame it produces cancels the drag.
+    // and examine modes cannot add to the retained client offset. Panning is
+    // client-only, so it remains available during a silent spell probe; any
+    // resulting tap is independently gated at sendGameInput above.
     enabled: normalMapPanEnabled,
     acceptsTarget: target => target instanceof Element && !!target.closest('#map-grid'),
     onStart: () => {
@@ -862,8 +869,7 @@ export function buildGameView(
   moreBtn.id = 'more-btn'
   moreBtn.style.display = 'none'
   moreBtn.addEventListener('click', () => {
-    if (isHarvesting()) return
-    conn.send({ msg: 'key', keycode: 32 })
+    sendGameInput({ msg: 'key', keycode: 32 })
     focusView()
   })
 
@@ -893,10 +899,13 @@ export function buildGameView(
   }
 
   const isEscapeInput = (msg: ClientMsg): boolean => msg.msg === 'key' && msg.keycode === 27
+  const isExamineInput = (msg: ClientMsg): boolean => msg.msg === 'input' && msg.text === 'X'
 
   function sendUserInput(msg: ClientMsg): void {
-    if (isEscapeInput(msg)) resetClientPan()
-    conn.send(msg)
+    if (!sendGameInput(msg)) return
+    // Examine starts from the server-directed camera center. Unlike Escape,
+    // X still reached DCSS above so it can enter view-map mode.
+    if (isExamineInput(msg)) resetClientPan()
     afterUserSend(msg)
   }
 
@@ -905,10 +914,9 @@ export function buildGameView(
   // guards here are what give an injected Esc the same meaning as a
   // tapped one.
   function dispatchTouchInput(msg: ClientMsg): void {
-    // Recenter even when Esc is consumed by a client-local panel or by the
-    // silent-harvest guard below.
-    if (isEscapeInput(msg)) resetClientPan()
-    if (isHarvesting()) return  // suppress d-pad/macro input during silent harvest
+    // A nonzero camera offset makes Esc a client-local recenter command. Do
+    // not let that same tap also cancel the server's current action.
+    if (isEscapeInput(msg) && resetClientPan()) return
     // The monster panel is a client-only overlay and the touch controls stay
     // visible over it (both orientations, like any plain menu). Route their
     // Esc to close the panel — mirroring the physical Esc handler in
@@ -1401,8 +1409,12 @@ export function buildGameView(
     // owns the keyboard: don't forward anything to the game underneath. Its own
     // Escape listener (overlay.ts) handles dismissal, so no preventDefault here.
     if (isOverlayOpen()) return
-    if (e.key === 'Escape') resetClientPan()
-    if (isHarvesting()) { e.preventDefault(); return }  // suppress during silent harvest
+    // A nonzero camera offset makes this Esc a client-local recenter command.
+    // A later Esc, with the camera already centered, follows normal routing.
+    if (e.key === 'Escape' && resetClientPan()) {
+      e.preventDefault()
+      return
+    }
     // Chat sheet: Escape closes it, in both roles — checked before the
     // spectator branch so it doesn't double as exit-to-lobby. (Keys typed
     // while the chat input is focused never reach here — the input's own
@@ -1492,7 +1504,7 @@ export function buildGameView(
           body.querySelectorAll<HTMLElement>('[data-key]').forEach((el) => {
             el.addEventListener('click', () => {
               const k = el.getAttribute('data-key') ?? ''
-              if (k) conn.send({ msg: 'input', text: k })
+              if (k) sendGameInput({ msg: 'input', text: k })
             })
             btnRow.appendChild(el)
           })
@@ -2520,7 +2532,7 @@ export function buildGameView(
           // monsters get colour=false so the spell name keeps the default
           // text colour; items pass colour=true to highlight schools.
           const colourSpells = msg.type !== 'describe-monster'
-          const onSpell = (letter: string) => conn.send({ msg: 'input', text: letter })
+          const onSpell = (letter: string) => sendGameInput({ msg: 'input', text: letter })
           const parts = rawBody.split('SPELLSET_PLACEHOLDER')
           parts.forEach((part, i) => {
             if (i > 0) {
@@ -2648,7 +2660,7 @@ export function buildGameView(
         // Submit via "input" (pty), not the 0.34+ "text_input" control message
         // pre-0.34 engines drop — see showTextInput. No prefill on a menu
         // filter, so no Ctrl-U/Ctrl-K clear is needed.
-        conn.send({ msg: 'input', text: input.value + '\r' })
+        sendGameInput({ msg: 'input', text: input.value + '\r' })
         closeTitlePrompt()
       } else if (e.key === 'Escape') {
         e.preventDefault()
@@ -2749,7 +2761,7 @@ export function buildGameView(
       const fire = () => {
         const shiftedNow = menuShift.isOn
         const out = shiftedNow && /[a-z]/.test(letter) ? letter.toUpperCase() : letter
-        conn.send({ msg: 'input', text: out })
+        sendGameInput({ msg: 'input', text: out })
         menuShift.consume()
       }
       btn.addEventListener('click', () => {
@@ -3255,16 +3267,19 @@ export function buildGameView(
     // mode, so it needs its own gate: in landscape the rail stays visible in
     // the sidebar beside the panel, and a tap here bypasses the touch-input
     // swallow (the rail sends via conn.send, not that callback).
-    if (monsterPanelOpen || currentInputMode !== 1 || !commandChannelIdle()) return
-    // With the d-pad Shift toggle engaged, force-cast (`Z`, CMD_FORCE_CAST_SPELL:
-    // casts even with no target in view) instead of plain `z`.
-    const cmd = touchControls.consumeShift() ? 'Z' : 'z'
-    // One message, not two: the Python server writes each input message's text
-    // to the game pty in a single write (process_handler.handle_input), so
-    // "z"+letter arrive in the engine's buffer together and it never blocks
-    // (flushing the cast prompt and waiting on the socket) between them — the
-    // way it can when two messages land as two pty writes.
-    conn.send({ msg: 'input', text: `${cmd}${letter}` })
+    // A rail tap injects an entire command sequence, so it needs the stronger
+    // command-channel check (including the non-suppressing late-reply window),
+    // not merely the central gate used for ordinary individual keypresses.
+    if (monsterPanelOpen || currentInputMode !== 1 || !harvester.channelIdle()) return
+    withGameInput(() => {
+      // With the d-pad Shift toggle engaged, force-cast (`Z`,
+      // CMD_FORCE_CAST_SPELL) instead of plain `z`.
+      const cmd = touchControls.consumeShift() ? 'Z' : 'z'
+      // One message, not two: the Python server writes each input message's
+      // text to the game pty in a single write, so it cannot pause between z
+      // and the spell letter waiting on another socket frame.
+      conn.send({ msg: 'input', text: `${cmd}${letter}` })
+    })
   }
 
   // Render the persistent quick-cast rail from the harvested spells. Hidden
@@ -3314,16 +3329,16 @@ export function buildGameView(
 
   // Truly idle at the command prompt — safe to inject a keystroke that must
   // be read as a command (the Android back handler's 'S'). On top of
-  // commandChannelIdle (uiQuiet + harvest phase), input_mode must be COMMAND
-  // (1) — targeting and yesno reads are modes of their own that uiQuiet
-  // can't see (same guard as castSpellLetter's), where Esc is the cancel —
+  // the harvester's command-channel check, input_mode must be COMMAND (1) —
+  // targeting and yesno reads are modes of their own that uiQuiet can't see
+  // (same guard as castSpellLetter's), where Esc is the cancel —
   // and the client-only panels and the two inline input rows (text/numpad)
   // must route Esc too: during a server line-read, an injected letter would
   // be typed INTO the read (or pick an item slot at a slot prompt). The
   // engine answers that Esc by returning input_mode to COMMAND, which is
   // what removes the input rows client-side.
   function idleAtCommandPrompt(): boolean {
-    return commandChannelIdle() && currentInputMode === 1
+    return harvester.channelIdle() && currentInputMode === 1
       && !monsterPanelOpen && !minimapOpen
       && !msgLog.querySelector('.game-text-input-row')
       && numpadInput.style.display === 'none'
@@ -3603,7 +3618,7 @@ export function buildGameView(
             && keycode != null
             && keycode >= 97 && keycode <= 122
           ) {
-            conn.send({ msg: 'key', keycode: keycode - 32 })
+            sendGameInput({ msg: 'key', keycode: keycode - 32 })
             menuShift.consume()
             return
           }
@@ -3618,12 +3633,12 @@ export function buildGameView(
           if (flags & MF_ARROWS_SELECT) {
             setMenuHover(i, false)
             const activateKey = (flags & MF_MULTISELECT) ? 32 : 13
-            conn.send({ msg: 'key', keycode: activateKey })
+            sendGameInput({ msg: 'key', keycode: activateKey })
             menuShift.consume()
             return
           }
           if (keycode == null) return
-          conn.send({ msg: 'key', keycode })
+          sendGameInput({ msg: 'key', keycode })
           menuShift.consume()
         }, itemColor)
         if (item.tiles && item.tiles.length > 0) {
@@ -3681,7 +3696,7 @@ export function buildGameView(
         // will land in renderOverlay and swap the body in place, avoiding a
         // brief flash of the bare map between close and re-open. The ui-push
         // handler clears monsterPanelOpen, so the keyboard guard hands off.
-        conn.send({ msg: 'click_cell', x, y, button: 3 })
+        sendGameInput({ msg: 'click_cell', x, y, button: 3 })
       } else {
         closeMonsterPanel()
       }
@@ -3759,8 +3774,8 @@ export function buildGameView(
     // under it (targeting / level map entered from a popup): the screen is
     // the live map, so the message pill and client lenses behave as in
     // plain play. Dialogs live outside the engine stack and still count.
-    if (cutoffHidesAll()) return dialogActive || isHarvesting()
-    return uiStack.length > 0 || crtActive || dialogActive || !!activeMenu || isHarvesting()
+    if (cutoffHidesAll()) return dialogActive
+    return uiStack.length > 0 || crtActive || dialogActive || !!activeMenu
   }
 
   // Dismiss both client-side map overlays. Called wherever a server overlay
@@ -3831,7 +3846,7 @@ export function buildGameView(
   // screens stay free of this closure.
   const overlayCtx: OverlayScreenCtx = {
     overlay: uiOverlay,
-    send: (msg) => conn.send(msg),
+    send: (msg) => { sendGameInput(msg) },
     enterLayout: enterOverlayLayout,
     renderOverlay,
     autoOpenKbd,
@@ -4126,11 +4141,11 @@ export function buildGameView(
     // PD_EXCLUDED. So we just close on any tap and dispatch the button's
     // native message — matches upstream wire behavior exactly.
     function sendChar(ch: string): void {
-      conn.send({ msg: 'input', text: ch })
+      sendGameInput({ msg: 'input', text: ch })
       if (radiusNumpadActive) removeNumpadInput()
     }
     function sendKey(keycode: number): void {
-      conn.send({ msg: 'key', keycode })
+      sendGameInput({ msg: 'key', keycode })
       if (radiusNumpadActive) removeNumpadInput()
     }
 
@@ -4200,7 +4215,7 @@ export function buildGameView(
         // and wipe it. "repeat" has no prefill, so it skips the clear.
         const text = (tag !== 'repeat' ? '\x15\x0b' : '') + input.value + '\r'
         removeTextInput()
-        conn.send({ msg: 'input', text })
+        sendGameInput({ msg: 'input', text })
         focusView()
       } else if (e.key === 'Escape') {
         e.preventDefault()
@@ -4293,7 +4308,7 @@ export function buildGameView(
     btn.className = 'action-btn'
     btn.innerHTML = dcssToHtml(label)
     btn.addEventListener('click', () => {
-      conn.send({ msg: 'input', text: key })
+      sendGameInput({ msg: 'input', text: key })
       focusView()
     })
     row.appendChild(btn)
@@ -4315,7 +4330,7 @@ export function buildGameView(
         btn.className = 'action-btn'
         btn.innerHTML = dcssToHtml(t)
         btn.addEventListener('click', () => {
-          conn.send({ msg: 'input', text: key })
+          sendGameInput({ msg: 'input', text: key })
           focusView()
         })
         bar.appendChild(btn)

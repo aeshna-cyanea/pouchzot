@@ -1422,9 +1422,10 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   flex: 1;
   display: grid;
   /* No `msg` row: the message log and spell rail both float over the map
-     (position:absolute, see their rules) so the map's 1fr claims the full
-     height. Keeping them out of flow is what makes the rail's post-harvest
-     arrival a non-event for the map's size — no re-fit, no jump. */
+     (position:absolute, see their rules) so the map's border box keeps the
+     full 1fr height. Portrait still changes the map's bottom clear-area
+     reserve when the rail appears or disappears; its ResizeObserver refits
+     that internal content area without making the outer grid row jump. */
   /* `chat` sits between hud and touch: the chat sheet opens with the HUD
      riding its top edge, while the touch/spectator-bar row keeps the true
      bottom — chrome stays anchored (and the chat chip inside the spectator
@@ -1698,12 +1699,12 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
 
 /* Portrait: the log (base rule) floats over the map's BOTTOM edge; these rules
    set its anchor and float the quick-cast rail. Both are out of flow, so the
-   map keeps its full height and — crucially — the rail's late arrival (a
-   round-trip after load, when the silent harvest populates it) only fades in
-   over the map; it never resizes the map, which would re-fit and jump. Casters
-   and non-casters share the float; the only caster delta is the rail itself
-   and the log/--more-- offsets that clear it. An abspos grid item's containing
-   block is its grid area, so bottom:0 = the map cell's bottom edge. */
+   outer map keeps its full height. Rail visibility does deliberately change
+   the internal clear-area reserve below, producing one refit that keeps the
+   player centered above the visible chrome. Casters and non-casters share the
+   float; the other caster delta is the log/--more-- offset that clears the
+   rail. An abspos grid item's containing block is its grid area, so bottom:0
+   = the map cell's bottom edge. */
 @media (orientation: portrait) {
   #game-messages { bottom: 0; }
   /* Rail present: float the log just above it. */

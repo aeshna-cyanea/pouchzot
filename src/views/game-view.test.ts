@@ -463,6 +463,7 @@ describe('map message → store merge', () => {
     try {
       const h = setup()
       h.dispatch({ msg: 'input_mode', mode: 1 })
+      h.dispatch({ msg: 'menu', tag: 'spell', items: [] })
       h.dispatch({ msg: 'map', vgrdc: { x: 50, y: 80 }, cells: [] })
       const cell = stubAsciiMapBounds(h)
       mapPointer(cell, 'pointerdown', 100, 100)
@@ -486,9 +487,11 @@ describe('map message → store merge', () => {
     }
   })
 
-  it('physical Escape recenters a preserved targeting camera offset', () => {
+  it('physical Escape recenters a preserved targeting camera offset without reaching the server', () => {
     const h = setup()
     h.dispatch({ msg: 'input_mode', mode: 1 })
+    // Complete the automatic spell probe so it does not own the test's keys.
+    h.dispatch({ msg: 'menu', tag: 'spell', items: [] })
     h.dispatch({ msg: 'map', vgrdc: { x: 50, y: 80 }, cells: [] })
     const cell = stubAsciiMapBounds(h)
     const grid = h.view.querySelector<HTMLElement>('#map-grid')!
@@ -500,10 +503,56 @@ describe('map message → store merge', () => {
     h.dispatch({ msg: 'cursor', id: 1, loc: { x: 51, y: 80 } })
     expect(grid.style.transform).toBe('translate3d(5px, 0px, 0)')
 
+    const before = sent(h).length
     document.dispatchEvent(new KeyboardEvent('keydown', {
       key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true,
     } as KeyboardEventInit))
     expect(grid.style.transform).toBe('')
+    expect(sent(h)).toHaveLength(before)
+
+    // Once centered, Escape is a server command again.
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true,
+    } as KeyboardEventInit))
+    expect(sent(h)).toHaveLength(before + 1)
+    expect(sent(h).at(-1)).toEqual({ msg: 'key', keycode: 27 })
+  })
+
+  it('physical X recenters the camera and still enters examine mode on the server', () => {
+    const h = setup()
+    h.dispatch({ msg: 'input_mode', mode: 1 })
+    // Complete the automatic spell probe so it does not own the test's keys.
+    h.dispatch({ msg: 'menu', tag: 'spell', items: [] })
+    h.dispatch({ msg: 'map', vgrdc: { x: 50, y: 80 }, cells: [] })
+    const cell = stubAsciiMapBounds(h)
+    const grid = h.view.querySelector<HTMLElement>('#map-grid')!
+    mapPointer(cell, 'pointerdown', 100, 100)
+    mapPointer(cell, 'pointermove', 115, 100)
+    mapPointer(cell, 'pointerup', 115, 100)
+    expect(grid.style.transform).toBe('translate3d(5px, 0px, 0)')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'X', code: 'KeyX', keyCode: 88, shiftKey: true, bubbles: true,
+    } as KeyboardEventInit))
+    expect(grid.style.transform).toBe('')
+    expect(sent(h).at(-1)).toEqual({ msg: 'input', text: 'X' })
+  })
+
+  it('touch Escape consumes a pending camera offset without reaching the server', () => {
+    const h = setup()
+    h.dispatch({ msg: 'input_mode', mode: 1 })
+    h.dispatch({ msg: 'menu', tag: 'spell', items: [] })
+    h.dispatch({ msg: 'map', vgrdc: { x: 50, y: 80 }, cells: [] })
+    const cell = stubAsciiMapBounds(h)
+    const grid = h.view.querySelector<HTMLElement>('#map-grid')!
+    mapPointer(cell, 'pointerdown', 100, 100)
+    mapPointer(cell, 'pointermove', 115, 100)
+    mapPointer(cell, 'pointerup', 115, 100)
+
+    const before = sent(h).length
+    h.view.querySelector<HTMLButtonElement>('.tc-esc')!.click()
+    expect(grid.style.transform).toBe('')
+    expect(sent(h)).toHaveLength(before)
   })
 
   it('Android back consumes a pending camera offset as a recenter action', () => {
@@ -1651,6 +1700,35 @@ describe('spell harvest (silent I → Esc) + preface parsing', () => {
     expect(isHidden(overlay(h))).toBe(true)
   })
 
+  it('gates keyboard, touch, log, and map input at one boundary during the probe', () => {
+    vi.useFakeTimers()
+    try {
+      const h = setup()
+      h.dispatch({ msg: 'map', vgrdc: { x: 50, y: 80 }, cells: [] })
+      const cell = stubAsciiMapBounds(h)
+      startHarvest()
+      const before = sent(h).length
+
+      document.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'a', code: 'KeyA', keyCode: 65, bubbles: true,
+      } as KeyboardEventInit))
+      h.view.querySelector<HTMLButtonElement>('.tc-esc')!.click()
+      msgLog(h).click()
+      mapPointer(cell, 'pointerdown', 65, 95)
+      mapPointer(cell, 'pointerup', 65, 95)
+      vi.advanceTimersByTime(300)
+      expect(sent(h)).toHaveLength(before)
+
+      feedBase(h) // capture + internal closing Esc; user input is open again
+      document.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'a', code: 'KeyA', keyCode: 65, bubbles: true,
+      } as KeyboardEventInit))
+      expect(sent(h).at(-1)).toEqual({ msg: 'input', text: 'a' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('strips the "+" preface on the preselected row so title and columns are not shifted', () => {
     const h = setup()
     startHarvest()
@@ -1835,10 +1913,10 @@ describe('spell harvest (silent I → Esc) + preface parsing', () => {
     })
   })
 
-  // The rail is a grid row below the message log; while it's visible the
-  // `spell-row` class on #game-view floats the log over the map's bottom edge
-  // (style.css) so the rail's row reuses the log's old slot instead of
-  // shrinking the map. The class must track rail visibility exactly.
+  // The rail and message log float over the map. While the rail is visible,
+  // `spell-row` moves the log above it and extends the map's bottom clear-area
+  // reserve, causing one internal refit without shrinking the outer map row.
+  // The class must therefore track rail visibility exactly.
   describe('spell-row layout mode (rail row + log-over-map)', () => {
     const rail = (h: Harness) => h.view.querySelector<HTMLElement>('#spell-rail')!
     const inSpellRow = (h: Harness) => h.view.classList.contains('spell-row')

@@ -44,6 +44,7 @@ _Screenshots from the original PocketZot project._
 - Spectator mode with an expanded map view.
 - Floating, collapsible monster list; tap for details.
 - Pinch to zoom. Alternatively, double tap and hold, then drag vertically.
+- Drag the map to pan it; Escape and X recenter it.
 - Over 2.8 trillion logos.
 - Installs to your home screen as a PWA.
 
