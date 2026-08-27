@@ -3865,6 +3865,12 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   flex-direction: column;
   align-items: center;
   gap: 0.3rem;
+  /* At least as tall as the touch-panel it covers, so controls never peek
+     out beneath the keyboard. */
+  min-height: calc(
+    max(calc(var(--tc-dpad) * 3 + 4px), var(--tc-panel-size)) +
+    0.4rem + var(--safe-bottom)
+  );
   /* The keyboard has no scrollable surface. Keep all contacts in the page so
      one finger can hold a modifier while another finger taps letters. */
   touch-action: none;
@@ -3885,6 +3891,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   gap: var(--kbd-row-gap);
   align-items: center;
   width: 100%;
+  flex-grow: 1;
 }
 
 .kbd-row {
@@ -3893,6 +3900,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   justify-content: center;
   align-items: stretch;
   width: 100%;
+  flex-grow: 1;
 }
 
 .kbd-key {
@@ -3911,7 +3919,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   -webkit-user-select: none;
   touch-action: none;
   width: var(--kbd-key-w);
-  height: var(--kbd-key-h);
+  min-height: var(--kbd-key-h);
   padding: 0;
   flex-shrink: 1;
   flex-grow: 0;
@@ -4281,16 +4289,23 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
     color: color-mix(in srgb, var(--text-dim) 55%, transparent);
   }
 
+  #touch-controls {
+    /* Footer keys have a 1.8rem floor in landscape (where dead padding sits
+       below them in portrait); flush against a screen edge they need real
+       height to hit. We override the variable here so --tc-panel-size
+       automatically incorporates the taller footer height for the overlay! */
+    --tc-modifier-size: max(1.8rem, var(--pz-modifier-size, 1.4rem));
+  }
+
   .tc-panel {
     grid-area: panel;
     padding: 0;
     margin: 0.35rem 0 var(--sidebar-lift) 0;
   }
-  /* Footer keys are 1.4rem in portrait, where dead padding sits below
-     them; flush against a screen edge they need real height to hit. */
+
   .tc-shift,
   .tc-ctrl,
-  .tc-kbd { height: max(1.8rem, var(--tc-modifier-size)); }
+  .tc-kbd { height: var(--tc-modifier-size); }
 
   /* Menu-specific touch buttons replace the regular touch panel
      while a CRT/menu is active. */
@@ -4343,6 +4358,7 @@ button.lobby-account-chip.is-guest { cursor: pointer; }
   #kbd-overlay {
     --kbd-key-h: clamp(1.8rem, 9vh, 2.8rem);
     --kbd-row-gap: clamp(0.25rem, 1.2vh, 0.5rem);
+    min-height: calc(var(--tc-panel-size) + 0.35rem + var(--sidebar-lift));
   }
 }
 
