@@ -51,3 +51,5 @@ show special keyboard when (P)utting on jewelery and asked to select one
 if the camera is panned so player is off screen on input (and the input is movement or an action, not a modal) then move it back the minimum amount so the player is visible and 1 full tile away from the screen edge. not sure how to do this optimally, need to check.
 
 Dragging while in aim mode should be interpreted as hovering/mousing over tiles, so you get the lines startled aiming subtle aiming interface. then send the click when figer is released 
+
+configurable actions when swiping on keyboard. potential actions: show full qwerty keyboard, send keys to the client, idk think of other options
