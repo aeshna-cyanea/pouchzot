@@ -53,3 +53,5 @@ if the camera is panned so player is off screen on input (and the input is movem
 Dragging while in aim mode should be interpreted as hovering/mousing over tiles, so you get the lines startled aiming subtle aiming interface. then send the click when figer is released 
 
 configurable actions when swiping on keyboard. potential actions: show full qwerty keyboard, send keys to the client, idk think of other options
+
+alternative modes (incl for offline) - sprint, tutorial, etc
